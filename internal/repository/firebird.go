@@ -23,9 +23,31 @@ func NewFirebirdRepository() *FirebirdRepository {
 
 func (r *FirebirdRepository) getConnectionString(params domain.ConnectionParams) string {
 	// Format: user:password@database_string
-	// The firebirdsql driver accepts "user:password@host/path" or "user:password@alias"
-	// If params.Database already contains "host/path", we just prepend user:pass@
-	return fmt.Sprintf("%s:%s@%s", params.User, params.Password, params.Database)
+	// The firebirdsql driver uses net/url.Parse, which expects "user:password@host:port/path".
+	// Firebird users often provide "host:path" or "host/port:path".
+	// We need to normalize this to a URL-compatible format.
+
+	db := params.Database
+
+	// Check if the input is in "host/port:path" format (e.g., 127.0.0.1/3050:C:/db.fdb)
+	if colonIdx := strings.Index(db, ":"); colonIdx != -1 {
+		// Check for slash before colon (indicates port separator in Firebird syntax)
+		if slashIdx := strings.LastIndex(db[:colonIdx], "/"); slashIdx != -1 {
+			// Convert "host/port:path" -> "host:port/path"
+			host := db[:slashIdx]
+			port := db[slashIdx+1 : colonIdx]
+			path := db[colonIdx+1:]
+			db = fmt.Sprintf("%s:%s/%s", host, port, path)
+		} else {
+			// Convert "host:path" -> "host/path"
+			// This handles "100.77.235.41:ac" -> "100.77.235.41/ac"
+			host := db[:colonIdx]
+			path := db[colonIdx+1:]
+			db = fmt.Sprintf("%s/%s", host, path)
+		}
+	}
+
+	return fmt.Sprintf("%s:%s@%s", params.User, params.Password, db)
 }
 
 func (r *FirebirdRepository) TestConnection(params domain.ConnectionParams) error {
