@@ -29,31 +29,41 @@
     </div>
 
     <!-- Main Content -->
-    <div class="flex-1 flex flex-col overflow-hidden w-0"> <!-- w-0 ensures flex child doesn't overflow parent -->
+    <div class="flex-1 flex flex-col overflow-hidden w-0">
         <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 shadow-sm h-16 flex items-center justify-between shrink-0">
             <h2 class="text-xl font-semibold text-gray-800 dark:text-white truncate" v-if="selectedTable">
                 <i class="pi pi-table mr-2 text-primary-500"></i>
                 {{ selectedTable }}
+                <span v-if="totalRecords !== null" class="ml-2 text-sm text-gray-500 font-normal">({{ totalRecords }} rows)</span>
             </h2>
             <h2 class="text-xl font-semibold text-gray-400" v-else>Select a table</h2>
         </header>
 
         <main class="flex-1 overflow-auto p-4 bg-gray-50 dark:bg-gray-900 relative">
             <div v-if="selectedTable" class="h-full flex flex-col">
-                <div v-if="loadingData" class="absolute inset-0 flex justify-center items-center bg-white/50 dark:bg-gray-900/50 z-10">
-                    <i class="pi pi-spin pi-spinner text-4xl text-primary-500"></i>
-                </div>
-
                 <div v-if="error" class="p-4">
                      <Message severity="error">{{ error }}</Message>
                 </div>
 
                 <!-- DataTable Container -->
                 <div v-else class="flex-1 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-                    <DataTable :value="tableData" scrollable scrollHeight="flex" class="p-datatable-sm text-sm" stripedRows showGridlines>
+                    <DataTable
+                        :value="virtualData"
+                        scrollable
+                        scrollHeight="flex"
+                        class="p-datatable-sm text-sm"
+                        stripedRows
+                        showGridlines
+                        :virtualScrollerOptions="{ itemSize: 35, lazy: true, onLazyLoad: loadDataLazy, showLoader: true, loading: loadingLazy, delay: 200 }"
+                        :totalRecords="totalRecords"
+                        :loading="loadingData"
+                    >
                         <Column v-for="col in columns" :key="col" :field="col" :header="col" style="min-width: 150px">
                             <template #body="{ data }">
-                                <span class="truncate block" :title="data[col]">{{ data[col] }}</span>
+                                <span v-if="data" class="truncate block" :title="data[col]">{{ data[col] }}</span>
+                                <span v-else class="flex items-center gap-2">
+                                    <i class="pi pi-spin pi-spinner text-xs text-gray-300"></i>
+                                </span>
                             </template>
                         </Column>
                         <template #empty>
@@ -86,9 +96,14 @@ const router = useRouter()
 const tables = ref([])
 const loadingTables = ref(false)
 const selectedTable = ref(null)
-const tableData = ref([])
-const loadingData = ref(false)
 const error = ref('')
+
+// Virtual Scroll Data
+const virtualData = ref([])
+const totalRecords = ref(0)
+const loadingData = ref(false)
+const loadingLazy = ref(false)
+const columns = ref([])
 
 const token = localStorage.getItem('token')
 const api = axios.create({
@@ -123,13 +138,34 @@ const fetchTables = async () => {
 }
 
 const selectTable = async (tableName) => {
+    if (selectedTable.value === tableName) return;
+
     selectedTable.value = tableName
-    loadingData.value = true
     error.value = ''
-    tableData.value = []
+    virtualData.value = []
+    totalRecords.value = 0
+    loadingData.value = true
+    columns.value = []
+
+    // Initial fetch to get columns and first page of data + count
     try {
-        const res = await api.get(`/api/table/${tableName}/data`)
-        tableData.value = res.data
+        const res = await api.get(`/api/table/${tableName}/data`, {
+            params: { limit: 100, offset: 0 }
+        })
+
+        // Backend returns: { data: [], total: int, limit: int, offset: int }
+        const initialData = res.data.data || []
+        totalRecords.value = res.data.total
+
+        if (initialData.length > 0) {
+            columns.value = Object.keys(initialData[0])
+            // Initialize virtualData array with empty slots for lazy loading
+            virtualData.value = Array.from({ length: totalRecords.value })
+            // Fill the first chunk
+            initialData.forEach((item, index) => {
+                virtualData.value[index] = item
+            })
+        }
     } catch (err) {
         error.value = err.response?.data?.error || "Failed to load data"
     } finally {
@@ -137,10 +173,39 @@ const selectTable = async (tableName) => {
     }
 }
 
-const columns = computed(() => {
-    if (tableData.value.length === 0) return []
-    return Object.keys(tableData.value[0])
-})
+const loadDataLazy = async (event) => {
+    if (!selectedTable.value) return;
+
+    const { first, last } = event
+    const limit = last - first
+    const offset = first
+
+    // Check if we already have this data loaded (basic caching)
+    if (virtualData.value[first]) {
+        return
+    }
+
+    loadingLazy.value = true
+
+    try {
+        const res = await api.get(`/api/table/${selectedTable.value}/data`, {
+            params: { limit, offset }
+        })
+
+        const chunk = res.data.data || []
+
+        chunk.forEach((item, index) => {
+            if (first + index < virtualData.value.length) {
+                 virtualData.value[first + index] = item
+            }
+        })
+
+    } catch (err) {
+        console.error("Lazy load failed", err)
+    } finally {
+        loadingLazy.value = false
+    }
+}
 
 onMounted(() => {
     fetchTables()
