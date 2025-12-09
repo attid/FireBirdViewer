@@ -16,6 +16,8 @@
 - [x] Backend support for pagination (limit, offset, total count).
 - [x] Update support using `RDB$DB_KEY`.
 - [ ] Edit/Delete records in Data Grid (UI implementation pending).
+- [ ] **Firebird 4/5 Support:** Ensure SQL queries are compatible with modern Firebird versions (ODS 13+).
+    - [ ] Detect Server/ODS Version on connect.
 - [ ] DDL Viewer (Show Create Table).
 - [ ] SQL Editor with syntax highlighting (Monaco/CodeMirror).
 
@@ -40,4 +42,5 @@
     - [x] Implement VirtualScroller.
 - [x] **Backend:**
     - [x] Fix pagination APIs.
+    - [x] Fix SQL compatibility for Firebird 4/5 (Alias usage).
 - [x] **Documentation:** Update README.

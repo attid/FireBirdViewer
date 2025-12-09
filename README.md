@@ -9,6 +9,7 @@ Lightweight web-based administrator for Firebird SQL databases.
 - **Virtual Scrolling:** Efficiently view large datasets with lazy loading.
 - **Modern UI:** Built with Vue 3, PrimeVue, and Tailwind CSS.
 - **Dockerized:** Easy to deploy single-container application.
+- **Firebird Support:** Targeted for Firebird 4.0 and 5.0+ (ODS 13+).
 
 ## Getting Started
 

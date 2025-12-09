@@ -95,7 +95,8 @@ func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName s
 
 	// Use FIRST/SKIP syntax for pagination
 	// Fetching RDB$DB_KEY as hex string to identify rows for updates
-	query := fmt.Sprintf("SELECT FIRST %d SKIP %d RDB$DB_KEY, * FROM \"%s\"", limit, offset, tableName)
+	// Using table alias 't' to support "t.*" along with "t.RDB$DB_KEY" which is safer/required in some FB versions
+	query := fmt.Sprintf("SELECT FIRST %d SKIP %d t.RDB$DB_KEY, t.* FROM \"%s\" t", limit, offset, tableName)
 	log.Printf("GetData Query: %s", query)
 
 	rows, err := db.Query(query)
