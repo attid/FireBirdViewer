@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"firebird-web-admin/internal/domain"
 	"fmt"
+	"log"
 	"strings"
 
 	_ "github.com/nakagami/firebirdsql"
@@ -12,7 +13,9 @@ import (
 type Repository interface {
 	TestConnection(params domain.ConnectionParams) error
 	ListTables(params domain.ConnectionParams) ([]domain.Table, error)
-	GetData(params domain.ConnectionParams, tableName string) ([]map[string]interface{}, error)
+	GetData(params domain.ConnectionParams, tableName string, limit, offset int) ([]map[string]interface{}, error)
+	GetTotalCount(params domain.ConnectionParams, tableName string) (int, error)
+	UpdateData(params domain.ConnectionParams, tableName string, dbKey string, data map[string]interface{}) error
 }
 
 type FirebirdRepository struct{}
@@ -22,31 +25,19 @@ func NewFirebirdRepository() *FirebirdRepository {
 }
 
 func (r *FirebirdRepository) getConnectionString(params domain.ConnectionParams) string {
-	// Format: user:password@database_string
-	// The firebirdsql driver uses net/url.Parse, which expects "user:password@host:port/path".
-	// Firebird users often provide "host:path" or "host/port:path".
-	// We need to normalize this to a URL-compatible format.
-
 	db := params.Database
-
-	// Check if the input is in "host/port:path" format (e.g., 127.0.0.1/3050:C:/db.fdb)
 	if colonIdx := strings.Index(db, ":"); colonIdx != -1 {
-		// Check for slash before colon (indicates port separator in Firebird syntax)
 		if slashIdx := strings.LastIndex(db[:colonIdx], "/"); slashIdx != -1 {
-			// Convert "host/port:path" -> "host:port/path"
 			host := db[:slashIdx]
 			port := db[slashIdx+1 : colonIdx]
 			path := db[colonIdx+1:]
 			db = fmt.Sprintf("%s:%s/%s", host, port, path)
 		} else {
-			// Convert "host:path" -> "host/path"
-			// This handles "100.77.235.41:ac" -> "100.77.235.41/ac"
 			host := db[:colonIdx]
 			path := db[colonIdx+1:]
 			db = fmt.Sprintf("%s/%s", host, path)
 		}
 	}
-
 	return fmt.Sprintf("%s:%s@%s", params.User, params.Password, db)
 }
 
@@ -54,10 +45,10 @@ func (r *FirebirdRepository) TestConnection(params domain.ConnectionParams) erro
 	connStr := r.getConnectionString(params)
 	db, err := sql.Open("firebirdsql", connStr)
 	if err != nil {
+		log.Printf("Error opening connection: %v", err)
 		return err
 	}
 	defer db.Close()
-
 	return db.Ping()
 }
 
@@ -69,8 +60,6 @@ func (r *FirebirdRepository) ListTables(params domain.ConnectionParams) ([]domai
 	}
 	defer db.Close()
 
-	// Query to list tables in Firebird
-	// RDB$RELATIONS where RDB$VIEW_BLR is null (tables) and RDB$SYSTEM_FLAG is 0 (user tables)
 	query := `
 		SELECT RDB$RELATION_NAME
 		FROM RDB$RELATIONS
@@ -80,6 +69,7 @@ func (r *FirebirdRepository) ListTables(params domain.ConnectionParams) ([]domai
 	`
 	rows, err := db.Query(query)
 	if err != nil {
+		log.Printf("ListTables error: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -95,7 +85,7 @@ func (r *FirebirdRepository) ListTables(params domain.ConnectionParams) ([]domai
 	return tables, nil
 }
 
-func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName string) ([]map[string]interface{}, error) {
+func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName string, limit, offset int) ([]map[string]interface{}, error) {
 	connStr := r.getConnectionString(params)
 	db, err := sql.Open("firebirdsql", connStr)
 	if err != nil {
@@ -103,27 +93,27 @@ func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName s
 	}
 	defer db.Close()
 
-	// WARNING: Basic implementation, vulnerable to SQL injection if tableName is not validated.
-	// For MVP foundation, we assume tableName comes from our own ListTables list, but should be careful.
-	// Firebird doesn't support parameterized table names.
-	// Ideally we should quote the identifier.
-	query := fmt.Sprintf("SELECT FIRST 100 * FROM \"%s\"", tableName)
+	// Use FIRST/SKIP syntax for pagination
+	// Fetching RDB$DB_KEY as hex string to identify rows for updates
+	query := fmt.Sprintf("SELECT FIRST %d SKIP %d RDB$DB_KEY, * FROM \"%s\"", limit, offset, tableName)
+	log.Printf("GetData Query: %s", query)
 
 	rows, err := db.Query(query)
 	if err != nil {
+		log.Printf("GetData DB Error: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
 
 	columns, err := rows.Columns()
 	if err != nil {
+		log.Printf("GetData Columns Error: %v", err)
 		return nil, err
 	}
 
 	var result []map[string]interface{}
 
 	for rows.Next() {
-		// Create a slice of interface{} to hold values
 		values := make([]interface{}, len(columns))
 		valuePtrs := make([]interface{}, len(columns))
 		for i := range values {
@@ -131,6 +121,7 @@ func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName s
 		}
 
 		if err := rows.Scan(valuePtrs...); err != nil {
+			log.Printf("GetData Scan Error: %v", err)
 			return nil, err
 		}
 
@@ -140,7 +131,12 @@ func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName s
 			val := values[i]
 			b, ok := val.([]byte)
 			if ok {
-				v = string(b)
+				// Special handling for RDB$DB_KEY: encode as Hex for frontend
+				if col == "DB_KEY" || col == "RDB$DB_KEY" {
+					v = fmt.Sprintf("%x", b)
+				} else {
+					v = string(b)
+				}
 			} else {
 				v = val
 			}
@@ -148,6 +144,65 @@ func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName s
 		}
 		result = append(result, entry)
 	}
-
 	return result, nil
+}
+
+func (r *FirebirdRepository) GetTotalCount(params domain.ConnectionParams, tableName string) (int, error) {
+	connStr := r.getConnectionString(params)
+	db, err := sql.Open("firebirdsql", connStr)
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+
+	query := fmt.Sprintf("SELECT COUNT(*) FROM \"%s\"", tableName)
+	log.Printf("GetTotalCount Query: %s", query)
+	var count int
+	if err := db.QueryRow(query).Scan(&count); err != nil {
+		log.Printf("GetTotalCount Error: %v", err)
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *FirebirdRepository) UpdateData(params domain.ConnectionParams, tableName string, dbKey string, data map[string]interface{}) error {
+	connStr := r.getConnectionString(params)
+	db, err := sql.Open("firebirdsql", connStr)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	setClauses := []string{}
+	args := []interface{}{}
+
+	for col, val := range data {
+		// Skip DB_KEY in update
+		if col == "RDB$DB_KEY" || col == "DB_KEY" {
+			continue
+		}
+		setClauses = append(setClauses, fmt.Sprintf("\"%s\" = ?", col))
+		args = append(args, val)
+	}
+
+	if len(setClauses) == 0 {
+		return nil
+	}
+
+	// Convert hex string dbKey back to bytes
+	var keyBytes []byte
+	_, err = fmt.Sscanf(dbKey, "%x", &keyBytes)
+	if err != nil {
+		return fmt.Errorf("invalid db_key format")
+	}
+	args = append(args, keyBytes)
+
+	query := fmt.Sprintf("UPDATE \"%s\" SET %s WHERE RDB$DB_KEY = ?", tableName, strings.Join(setClauses, ", "))
+	log.Printf("UpdateData Query: %s, Args: %v", query, args)
+
+	_, err = db.Exec(query, args...)
+	if err != nil {
+		log.Printf("UpdateData Error: %v", err)
+	}
+	return err
 }
