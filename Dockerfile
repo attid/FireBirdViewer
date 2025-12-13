@@ -18,11 +18,14 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o firebird-web-admin ./cmd/server
 
 # Stage 3: Final Image
 FROM alpine:latest
+ARG VERSION=unknown
+LABEL version=$VERSION
 WORKDIR /app
 # Install ca-certificates just in case we need HTTPS calls later
 RUN apk --no-cache add ca-certificates
 
 COPY --from=backend-builder /app/firebird-web-admin .
+COPY --from=backend-builder /app/VERSION .
 # Copy the built frontend assets from Stage 1 to ./dist in the container
 COPY --from=frontend-builder /app/frontend/dist ./dist
 

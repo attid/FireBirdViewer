@@ -31,11 +31,14 @@ jobs:
       - name: Build Docker image
         # working-directory: ./jules_bot
         run: |
-          docker build -t $REGISTRY/$IMAGE_NAME:latest .
+          VERSION=$(cat VERSION)
+          docker build --build-arg VERSION=$VERSION -t $REGISTRY/$IMAGE_NAME:latest -t $REGISTRY/$IMAGE_NAME:$VERSION .
 
       - name: Push Docker image
         run: |
+          VERSION=$(cat VERSION)
           docker push $REGISTRY/$IMAGE_NAME:latest
+          docker push $REGISTRY/$IMAGE_NAME:$VERSION
 
       #- name: Notify Telegram
       #  run: |
