@@ -43,7 +43,7 @@ func main() {
 		e.Static("/assets", "./dist/assets")
 
 		// Serve favicon if exists
-		e.File("/vite.svg", "./dist/vite.svg")
+		e.File("/favicon.svg", "./dist/favicon.svg")
 
 		// Serve index.html at root
 		e.File("/", "./dist/index.html")
