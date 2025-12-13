@@ -48,6 +48,7 @@
                 <!-- DataTable Container -->
                 <div v-else class="flex-1 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
                     <DataTable
+                        :key="selectedTable"
                         :value="virtualData"
                         scrollable
                         scrollHeight="flex"
@@ -189,10 +190,10 @@ const loadDataLazy = async (event) => {
 
     // Check if we already have this data loaded (basic caching)
     // We check the first item of the requested chunk.
-    if (virtualData.value[first]) {
-        console.log("loadDataLazy: data already cached for index", first)
-        return
-    }
+    // if (virtualData.value[first]) {
+    //     console.log("loadDataLazy: data already cached for index", first)
+    //     return
+    // }
 
     loadingLazy.value = true
 
