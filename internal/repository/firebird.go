@@ -16,6 +16,9 @@ type Repository interface {
 	GetData(params domain.ConnectionParams, tableName string, limit, offset int) ([]map[string]interface{}, []domain.Column, error)
 	GetTotalCount(params domain.ConnectionParams, tableName string) (int, error)
 	UpdateData(params domain.ConnectionParams, tableName string, dbKey string, data map[string]interface{}) error
+	ListViews(params domain.ConnectionParams) ([]domain.Table, error)
+	ListProcedures(params domain.ConnectionParams) ([]domain.Table, error)
+	GetProcedureSource(params domain.ConnectionParams, procName string) (string, error)
 }
 
 type FirebirdRepository struct{}
@@ -257,4 +260,97 @@ func (r *FirebirdRepository) UpdateData(params domain.ConnectionParams, tableNam
 		log.Printf("UpdateData Error: %v", err)
 	}
 	return err
+}
+
+func (r *FirebirdRepository) ListViews(params domain.ConnectionParams) ([]domain.Table, error) {
+	connStr := r.getConnectionString(params)
+	db, err := sql.Open("firebirdsql", connStr)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	query := `
+		SELECT RDB$RELATION_NAME
+		FROM RDB$RELATIONS
+		WHERE RDB$VIEW_BLR IS NOT NULL
+		AND (RDB$SYSTEM_FLAG IS NULL OR RDB$SYSTEM_FLAG = 0)
+		ORDER BY RDB$RELATION_NAME
+	`
+	rows, err := db.Query(query)
+	if err != nil {
+		log.Printf("ListViews error: %v", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tables []domain.Table
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		tables = append(tables, domain.Table{Name: strings.TrimSpace(name)})
+	}
+	return tables, nil
+}
+
+func (r *FirebirdRepository) ListProcedures(params domain.ConnectionParams) ([]domain.Table, error) {
+	connStr := r.getConnectionString(params)
+	db, err := sql.Open("firebirdsql", connStr)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	query := `
+		SELECT RDB$PROCEDURE_NAME
+		FROM RDB$PROCEDURES
+		WHERE (RDB$SYSTEM_FLAG IS NULL OR RDB$SYSTEM_FLAG = 0)
+		ORDER BY RDB$PROCEDURE_NAME
+	`
+	rows, err := db.Query(query)
+	if err != nil {
+		log.Printf("ListProcedures error: %v", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tables []domain.Table
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		tables = append(tables, domain.Table{Name: strings.TrimSpace(name)})
+	}
+	return tables, nil
+}
+
+func (r *FirebirdRepository) GetProcedureSource(params domain.ConnectionParams, procName string) (string, error) {
+	connStr := r.getConnectionString(params)
+	db, err := sql.Open("firebirdsql", connStr)
+	if err != nil {
+		return "", err
+	}
+	defer db.Close()
+
+	query := `
+		SELECT RDB$PROCEDURE_SOURCE
+		FROM RDB$PROCEDURES
+		WHERE RDB$PROCEDURE_NAME = ?
+	`
+	var source sql.NullString
+	// Firebird usually stores names in uppercase, but let's try exact match first or handle case sensitivity.
+	// Usually system tables store uppercase. The user provided input might be whatever.
+	// For now, let's assume exact match.
+	if err := db.QueryRow(query, strings.ToUpper(procName)).Scan(&source); err != nil {
+		log.Printf("GetProcedureSource error: %v", err)
+		return "", err
+	}
+
+	if source.Valid {
+		return source.String, nil
+	}
+	return "", nil
 }

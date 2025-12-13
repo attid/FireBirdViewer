@@ -7,24 +7,41 @@
         <Button icon="pi pi-sign-out" text rounded aria-label="Logout" @click="logout" size="small" />
       </div>
       <div class="flex-1 overflow-y-auto p-2 scrollbar-thin">
-         <h3 class="font-semibold px-2 py-2 text-xs text-gray-400 uppercase tracking-wider">Tables</h3>
+         <h3 class="font-semibold px-2 py-2 text-xs text-gray-400 uppercase tracking-wider">{{ activeSectionTitle }}</h3>
          <div v-if="loadingTables" class="p-4 flex justify-center">
             <i class="pi pi-spin pi-spinner text-2xl text-primary-500"></i>
          </div>
          <ul v-else class="space-y-0.5">
-           <li v-for="table in tables" :key="table.name">
+           <li v-for="item in tables" :key="item.name">
              <button
-                @click="selectTable(table.name)"
+                @click="selectTable(item.name)"
                 :class="['w-full text-left px-3 py-2 rounded-md text-sm transition-colors truncate flex items-center gap-2',
-                    selectedTable === table.name
+                    selectedTable === item.name
                     ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300 font-medium'
                     : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700']"
              >
-               <i class="pi pi-table text-gray-400" style="font-size: 0.9rem"></i>
-               <span class="truncate">{{ table.name }}</span>
+               <i :class="['pi', sectionIcon, 'text-gray-400']" style="font-size: 0.9rem"></i>
+               <span class="truncate">{{ item.name }}</span>
              </button>
            </li>
          </ul>
+      </div>
+
+      <!-- Navigation -->
+      <div class="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 grid grid-cols-3 gap-1">
+          <button
+              v-for="section in ['tables', 'views', 'procedures']"
+              :key="section"
+              @click="switchSection(section)"
+              :class="['flex flex-col items-center justify-center p-2 rounded-md transition-colors',
+                  activeSection === section
+                  ? 'bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
+                  : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700']"
+              :title="section"
+          >
+              <i :class="['pi', getSectionIcon(section), 'text-lg mb-1']"></i>
+              <span class="text-[10px] uppercase font-bold">{{ section }}</span>
+          </button>
       </div>
     </div>
 
@@ -32,11 +49,11 @@
     <div class="flex-1 flex flex-col overflow-hidden w-0">
         <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 shadow-sm h-16 flex items-center justify-between shrink-0">
             <h2 class="text-xl font-semibold text-gray-800 dark:text-white truncate" v-if="selectedTable">
-                <i class="pi pi-table mr-2 text-primary-500"></i>
+                <i :class="['pi', sectionIcon, 'mr-2 text-primary-500']"></i>
                 {{ selectedTable }}
-                <span v-if="totalRecords !== null" class="ml-2 text-sm text-gray-500 font-normal">({{ totalRecords }} rows)</span>
+                <span v-if="activeSection !== 'procedures' && totalRecords !== null" class="ml-2 text-sm text-gray-500 font-normal">({{ totalRecords }} rows)</span>
             </h2>
-            <h2 class="text-xl font-semibold text-gray-400" v-else>Select a table</h2>
+            <h2 class="text-xl font-semibold text-gray-400" v-else>Select {{ activeSectionSingular }}</h2>
         </header>
 
         <main class="flex-1 overflow-auto p-4 bg-gray-50 dark:bg-gray-900 relative">
@@ -45,7 +62,18 @@
                      <Message severity="error">{{ error }}</Message>
                 </div>
 
-                <!-- DataTable Container -->
+                <!-- Procedure View -->
+                <div v-else-if="activeSection === 'procedures'" class="flex-1 flex flex-col h-full overflow-hidden bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-4">
+                    <div class="flex justify-end mb-4 gap-2">
+                        <Button label="Execute" icon="pi pi-play" severity="success" disabled title="Coming soon" />
+                    </div>
+                    <div v-if="loadingData" class="flex-1 flex justify-center items-center">
+                         <i class="pi pi-spin pi-spinner text-3xl text-primary-500"></i>
+                    </div>
+                    <pre v-else class="flex-1 overflow-auto p-4 bg-gray-50 dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700 font-mono text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{{ procedureSource }}</pre>
+                </div>
+
+                <!-- DataTable Container (Tables & Views) -->
                 <div v-else class="flex-1 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
                     <DataTable
                         :key="selectedTable"
@@ -59,8 +87,8 @@
                         :totalRecords="totalRecords"
                         :loading="loadingData"
                     >
-                        <!-- Actions Column -->
-                        <Column header="Actions" style="width: 50px; text-align: center">
+                        <!-- Actions Column (Only for Tables) -->
+                        <Column v-if="activeSection === 'tables'" header="Actions" style="width: 50px; text-align: center">
                            <template #body="{ data }">
                                <Button
                                   v-if="data"
@@ -92,7 +120,7 @@
             <div v-else class="flex flex-col items-center justify-center h-full text-gray-300 dark:text-gray-600 select-none">
                 <i class="pi pi-database text-8xl mb-6 opacity-50"></i>
                 <p class="text-2xl font-light">Welcome to FireBirdViewer</p>
-                <p class="text-sm mt-2 opacity-70">Select a table from the sidebar to view data</p>
+                <p class="text-sm mt-2 opacity-70">Select a {{ activeSectionSingular }} from the sidebar to view details</p>
             </div>
         </main>
     </div>
@@ -128,6 +156,10 @@ const selectedTable = ref(null)
 const error = ref('')
 const version = ref('')
 
+// Section state
+const activeSection = ref('tables')
+const procedureSource = ref('')
+
 // Virtual Scroll Data
 const virtualData = ref([])
 const totalRecords = ref(0)
@@ -138,6 +170,32 @@ const columns = ref([]) // Array of {name, type}
 // Edit Dialog
 const editDialogVisible = ref(false)
 const editingRow = ref(null)
+
+const activeSectionTitle = computed(() => {
+    switch(activeSection.value) {
+        case 'views': return 'Views'
+        case 'procedures': return 'Procedures'
+        default: return 'Tables'
+    }
+})
+
+const activeSectionSingular = computed(() => {
+    switch(activeSection.value) {
+        case 'views': return 'view'
+        case 'procedures': return 'procedure'
+        default: return 'table'
+    }
+})
+
+const sectionIcon = computed(() => getSectionIcon(activeSection.value))
+
+function getSectionIcon(section) {
+    switch(section) {
+        case 'views': return 'pi-eye'
+        case 'procedures': return 'pi-cog'
+        default: return 'pi-table'
+    }
+}
 
 const displayColumns = computed(() => {
     // Hide DB_KEY from main view
@@ -164,49 +222,71 @@ const logout = () => {
     router.push('/')
 }
 
-const fetchTables = async () => {
+const switchSection = async (section) => {
+    if (activeSection.value === section) return
+    activeSection.value = section
+    selectedTable.value = null
+    tables.value = []
+    error.value = ''
+    await fetchList()
+}
+
+const fetchList = async () => {
     loadingTables.value = true
     try {
-        const res = await api.get('/api/tables')
+        let endpoint = '/api/tables'
+        if (activeSection.value === 'views') endpoint = '/api/views'
+        if (activeSection.value === 'procedures') endpoint = '/api/procedures'
+
+        const res = await api.get(endpoint)
         tables.value = res.data
     } catch (err) {
-        console.error("Failed to load tables", err)
+        console.error("Failed to load list", err)
+        error.value = "Failed to load list"
     } finally {
         loadingTables.value = false
     }
 }
 
-const selectTable = async (tableName) => {
-    if (selectedTable.value === tableName) return;
+const selectTable = async (itemName) => {
+    if (selectedTable.value === itemName) return;
 
-    selectedTable.value = tableName
+    selectedTable.value = itemName
     error.value = ''
     virtualData.value = []
     totalRecords.value = 0
     loadingData.value = true
     columns.value = []
+    procedureSource.value = ''
 
-    // Initial fetch to get columns and first page of data + count
     try {
-        const res = await api.get(`/api/table/${tableName}/data`, {
-            params: { limit: 100, offset: 0 }
-        })
-
-        // Backend returns: { data: [], columns: [], total: int, limit: int, offset: int }
-        const initialData = res.data.data || []
-        columns.value = res.data.columns || []
-        totalRecords.value = res.data.total
-
-        if (initialData.length > 0) {
-            // Initialize virtualData array with empty slots for lazy loading
-            virtualData.value = Array.from({ length: totalRecords.value })
-            // Fill the first chunk
-            initialData.forEach((item, index) => {
-                virtualData.value[index] = item
+        if (activeSection.value === 'procedures') {
+            // Fetch procedure source
+            const res = await api.get(`/api/procedure/${itemName}/source`)
+            procedureSource.value = res.data.source || 'No source code available or empty.'
+        } else {
+            // Fetch Table/View Data
+            // Initial fetch to get columns and first page of data + count
+            const res = await api.get(`/api/table/${itemName}/data`, {
+                params: { limit: 100, offset: 0 }
             })
-        } else if (columns.value.length > 0) {
-             // If no data but we have columns (e.g. empty table), we are good
-             virtualData.value = []
+
+            // Backend returns: { data: [], columns: [], total: int, limit: int, offset: int }
+            const initialData = res.data.data || []
+            columns.value = res.data.columns || []
+            totalRecords.value = res.data.total
+
+            if (initialData.length > 0) {
+                // Initialize virtualData array with empty slots for lazy loading
+                virtualData.value = Array.from({ length: totalRecords.value })
+                // Fill the first chunk
+                initialData.forEach((item, index) => {
+                    virtualData.value[index] = item
+                })
+            } else if (columns.value.length > 0) {
+                // If no data but we have columns (e.g. empty table), we are good
+                virtualData.value = []
+            }
         }
     } catch (err) {
         error.value = err.response?.data?.error || "Failed to load data"
@@ -216,7 +296,7 @@ const selectTable = async (tableName) => {
 }
 
 const loadDataLazy = async (event) => {
-    if (!selectedTable.value) return;
+    if (!selectedTable.value || activeSection.value === 'procedures') return;
 
     const { first, last } = event
     const limit = last - first
@@ -228,13 +308,6 @@ const loadDataLazy = async (event) => {
         console.warn("loadDataLazy: limit <= 0, skipping request")
         return
     }
-
-    // Check if we already have this data loaded (basic caching)
-    // We check the first item of the requested chunk.
-    // if (virtualData.value[first]) {
-    //     console.log("loadDataLazy: data already cached for index", first)
-    //     return
-    // }
 
     loadingLazy.value = true
 
@@ -291,7 +364,7 @@ const saveRow = async (changes) => {
 }
 
 onMounted(async () => {
-    fetchTables()
+    fetchList()
     try {
         const res = await api.get('/api/config')
         if (res.data.version) {
