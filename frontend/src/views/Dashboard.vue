@@ -54,7 +54,7 @@
                         class="p-datatable-sm text-sm"
                         stripedRows
                         showGridlines
-                        :virtualScrollerOptions="{ itemSize: 35, lazy: true, onLazyLoad: loadDataLazy, showLoader: true, loading: loadingLazy, delay: 200 }"
+                        :virtualScrollerOptions="virtualScrollerOptions"
                         :totalRecords="totalRecords"
                         :loading="loadingData"
                     >
@@ -180,8 +180,17 @@ const loadDataLazy = async (event) => {
     const limit = last - first
     const offset = first
 
+    console.log(`loadDataLazy called: first=${first}, last=${last}, limit=${limit}, offset=${offset}`)
+
+    if (limit <= 0) {
+        console.warn("loadDataLazy: limit <= 0, skipping request")
+        return
+    }
+
     // Check if we already have this data loaded (basic caching)
+    // We check the first item of the requested chunk.
     if (virtualData.value[first]) {
+        console.log("loadDataLazy: data already cached for index", first)
         return
     }
 
@@ -210,6 +219,15 @@ const loadDataLazy = async (event) => {
 onMounted(() => {
     fetchTables()
 })
+
+const virtualScrollerOptions = computed(() => ({
+    itemSize: 35,
+    lazy: true,
+    onLazyLoad: loadDataLazy,
+    showLoader: true,
+    loading: loadingLazy.value,
+    delay: 200
+}))
 </script>
 
 <style>
