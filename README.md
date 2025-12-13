@@ -7,7 +7,7 @@ Lightweight web-based administrator for Firebird SQL databases.
 - **Quick Connect:** Connect to any Firebird database using Host, Path, User, and Password without saving credentials.
 - **Table Viewer:** Browse tables and view data.
 - **Virtual Scrolling:** Efficiently view large datasets with lazy loading.
-- **Modern UI:** Built with Vue 3, PrimeVue, and Tailwind CSS.
+- **Modern UI:** Built with Vue 3, PrimeVue https://primevue.org , and Tailwind CSS.
 - **Dockerized:** Easy to deploy single-container application.
 - **Firebird Support:** Targeted for Firebird 4.0 and 5.0+ (ODS 13+).
 
