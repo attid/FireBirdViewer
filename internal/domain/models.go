@@ -14,6 +14,7 @@ type Table struct {
 
 // Column represents a database column metadata.
 type Column struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	ReadOnly bool   `json:"read_only"`
 }

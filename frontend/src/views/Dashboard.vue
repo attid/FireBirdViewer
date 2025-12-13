@@ -263,10 +263,10 @@ const openEditDialog = (row) => {
     editDialogVisible.value = true
 }
 
-const saveRow = async (updatedRow) => {
+const saveRow = async (changes) => {
     try {
-        // Assume DB_KEY or RDB$DB_KEY is present
-        const dbKey = updatedRow.DB_KEY || updatedRow['RDB$DB_KEY']
+        // DB_KEY is in the original row, changes map might not have it.
+        const dbKey = editingRow.value.DB_KEY || editingRow.value['RDB$DB_KEY']
 
         if (!dbKey) {
             toast.add({ severity: 'error', summary: 'Error', detail: 'Missing DB_KEY for update', life: 3000 });
@@ -275,31 +275,14 @@ const saveRow = async (updatedRow) => {
 
         await api.put(`/api/table/${selectedTable.value}/data`, {
             db_key: dbKey,
-            data: updatedRow
+            data: changes
         })
 
         toast.add({ severity: 'success', summary: 'Success', detail: 'Record updated', life: 3000 });
         editDialogVisible.value = false
 
-        // Update local state (optimistic or re-fetch?)
-        // Simple approach: update the row in virtualData if we can find it
-        // Since virtualData is sparse, we might need to find index.
-        // For now, let's just update the specific row object in memory since it's reactive.
-        // Note: virtualData contains references to objects.
-
-        // Find the index in virtualData where this row lives?
-        // We don't strictly know the index easily unless we tracked it.
-        // But we can iterate the loaded chunks.
-        // Or simpler: Just re-fetch the current view or do nothing if the user doesn't mind.
-        // Better: Update the `editingRow` reference in place if it matches?
-
-        // Actually, we passed `rowData` to openEditDialog. `editingRow` is a reference to the row in `virtualData`?
-        // No, `editingRow.value = row` sets it to the object.
-        // So updating `row` updates `virtualData`?
-        // Wait, `EditRowDialog` emits `save` with a COPY of the data (`localData`).
-        // So we need to copy back properties to the original row object.
-
-        Object.assign(editingRow.value, updatedRow)
+        // Update local state
+        Object.assign(editingRow.value, changes)
 
     } catch (err) {
         console.error(err)
