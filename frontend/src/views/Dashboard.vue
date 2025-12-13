@@ -138,9 +138,8 @@ const editDialogVisible = ref(false)
 const editingRow = ref(null)
 
 const displayColumns = computed(() => {
-    // Hide DB_KEY from main view if preferred, or keep it.
-    // Usually DB_KEY is internal, but might be useful.
-    return columns.value
+    // Hide DB_KEY from main view
+    return columns.value.filter(col => col.name !== 'DB_KEY' && col.name !== 'RDB$DB_KEY')
 })
 
 const token = localStorage.getItem('token')

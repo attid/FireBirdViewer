@@ -7,16 +7,12 @@
     @update:visible="val => $emit('update:visible', val)"
   >
     <div v-if="localData" class="flex flex-col gap-4">
-      <div v-for="col in columns" :key="col.name" class="flex flex-col gap-1">
+      <template v-for="col in columns" :key="col.name">
+      <div v-if="!isHidden(col)" class="flex flex-col gap-1">
         <label class="font-medium text-gray-700 dark:text-gray-200">{{ col.name }}</label>
 
-        <!-- Read-only for DB_KEY -->
-        <div v-if="isReadOnly(col)" class="p-2 bg-gray-100 dark:bg-gray-800 rounded border border-gray-300 dark:border-gray-700 text-gray-500 font-mono text-xs break-all">
-          {{ localData[col.name] }}
-        </div>
-
         <!-- BLOB Handling -->
-        <div v-else-if="isBlob(col)" class="p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-yellow-700 dark:text-yellow-400 text-sm">
+        <div v-if="isBlob(col)" class="p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-yellow-700 dark:text-yellow-400 text-sm">
           BLOB editing not supported yet.
         </div>
 
@@ -31,6 +27,7 @@
         />
         <small class="text-xs text-gray-400">Type: {{ col.type }}</small>
       </div>
+      </template>
     </div>
 
     <template #footer>
@@ -64,7 +61,7 @@ watch(() => props.rowData, (newVal) => {
   }
 }, { immediate: true })
 
-const isReadOnly = (col) => {
+const isHidden = (col) => {
   return col.name === 'DB_KEY' || col.name === 'RDB$DB_KEY'
 }
 
