@@ -48,6 +48,7 @@ import { ref, watch, toRaw } from 'vue'
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
+import DatePicker from 'primevue/datepicker'
 
 const props = defineProps({
   visible: Boolean,
@@ -63,7 +64,16 @@ const saving = ref(false)
 watch(() => props.rowData, (newVal) => {
   if (newVal) {
     // Deep copy to avoid mutating parent state directly
-    localData.value = JSON.parse(JSON.stringify(newVal))
+    const copy = JSON.parse(JSON.stringify(newVal))
+
+    // Parse Date Strings back to Date Objects for PrimeVue DatePicker
+    props.columns.forEach(col => {
+       if (isDate(col) && copy[col.name]) {
+           copy[col.name] = new Date(copy[col.name])
+       }
+    })
+
+    localData.value = copy
   }
 }, { immediate: true })
 
@@ -76,6 +86,21 @@ const isBlob = (col) => {
   return type.includes('BLOB')
 }
 
+const isDate = (col) => {
+  const type = (col.type || '').toUpperCase()
+  return type.includes('TIMESTAMP') || type.includes('DATE') || type.includes('TIME')
+}
+
+const isTimestamp = (col) => {
+  const type = (col.type || '').toUpperCase()
+  return type.includes('TIMESTAMP')
+}
+
+const getDateFormat = (col) => {
+  // PrimeVue format
+  return 'yy-mm-dd'
+}
+
 const getInputType = (col) => {
   const type = (col.type || '').toUpperCase()
   if (type.includes('INT') || type.includes('FLOAT') || type.includes('DOUBLE') || type.includes('DECIMAL') || type.includes('NUMERIC')) {
@@ -84,24 +109,54 @@ const getInputType = (col) => {
   return 'text'
 }
 
+const formatDateForSQL = (date) => {
+    if (!date) return null
+    // Format: YYYY-MM-DD HH:MM:SS
+    const pad = (n) => n < 10 ? '0' + n : n
+    const y = date.getFullYear()
+    const m = pad(date.getMonth() + 1)
+    const d = pad(date.getDate())
+    const h = pad(date.getHours())
+    const min = pad(date.getMinutes())
+    const s = pad(date.getSeconds())
+    return `${y}-${m}-${d} ${h}:${min}:${s}`
+}
+
 const save = () => {
   saving.value = true
 
-  // Calculate changes
   const changes = {}
-  // Always include DB_KEY (or find it in original rowData if hidden in localData?)
-  // Assuming localData has it even if hidden
 
-  // Actually, we should just emit the diff + db_key.
-  // But for simplicity, let's just emit the whole object for now?
-  // NO, user requested to send only changes.
-
-  // Need to compare localData with props.rowData
   for (const key in localData.value) {
-    // If it's DB_KEY, skip adding to changes map logic (handled by parent?)
-    // Or just check equality.
-    if (localData.value[key] !== props.rowData[key]) {
-      changes[key] = localData.value[key]
+    let newVal = localData.value[key]
+    let oldVal = props.rowData[key]
+
+    // Find column def to check type
+    const col = props.columns.find(c => c.name === key)
+    if (col && isDate(col)) {
+        // Handle Date Comparison
+        let oldDate = oldVal ? new Date(oldVal) : null
+        let newDate = newVal
+
+        // Simple equality check on time value
+        if (oldDate && newDate && oldDate.getTime() === newDate.getTime()) {
+            continue;
+        }
+
+        // Handle case where one is null and other is not
+        if (!oldDate && !newDate) continue;
+
+        // If changed, format it for SQL
+        if (newDate instanceof Date) {
+            changes[key] = formatDateForSQL(newDate)
+        } else {
+            changes[key] = newVal // Should be null or something
+        }
+        continue
+    }
+
+    if (newVal !== oldVal) {
+      changes[key] = newVal
     }
   }
 
@@ -112,12 +167,6 @@ const save = () => {
       emit('update:visible', false) // Just close
       return
   }
-
-  // We need to pass the keys so the parent can identify the row
-  // DB_KEY might be in rowData but not changed.
-  // Let's pass the changes map, but we need to ensure the parent has access to the original DB_KEY
-  // The parent has 'editingRow' which is the original object.
-  // So we just emit 'changes'.
 
   emit('save', changes)
   saving.value = false
