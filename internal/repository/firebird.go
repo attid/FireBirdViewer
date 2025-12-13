@@ -13,7 +13,7 @@ import (
 type Repository interface {
 	TestConnection(params domain.ConnectionParams) error
 	ListTables(params domain.ConnectionParams) ([]domain.Table, error)
-	GetData(params domain.ConnectionParams, tableName string, limit, offset int) ([]map[string]interface{}, error)
+	GetData(params domain.ConnectionParams, tableName string, limit, offset int) ([]map[string]interface{}, []domain.Column, error)
 	GetTotalCount(params domain.ConnectionParams, tableName string) (int, error)
 	UpdateData(params domain.ConnectionParams, tableName string, dbKey string, data map[string]interface{}) error
 }
@@ -85,11 +85,11 @@ func (r *FirebirdRepository) ListTables(params domain.ConnectionParams) ([]domai
 	return tables, nil
 }
 
-func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName string, limit, offset int) ([]map[string]interface{}, error) {
+func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName string, limit, offset int) ([]map[string]interface{}, []domain.Column, error) {
 	connStr := r.getConnectionString(params)
 	db, err := sql.Open("firebirdsql", connStr)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer db.Close()
 
@@ -102,32 +102,46 @@ func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName s
 	rows, err := db.Query(query)
 	if err != nil {
 		log.Printf("GetData DB Error: %v", err)
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
 
-	columns, err := rows.Columns()
+	colNames, err := rows.Columns()
 	if err != nil {
 		log.Printf("GetData Columns Error: %v", err)
-		return nil, err
+		return nil, nil, err
+	}
+
+	colTypes, err := rows.ColumnTypes()
+	if err != nil {
+		log.Printf("GetData ColumnTypes Error: %v", err)
+		return nil, nil, err
+	}
+
+	var cols []domain.Column
+	for i, ct := range colTypes {
+		cols = append(cols, domain.Column{
+			Name: colNames[i],
+			Type: ct.DatabaseTypeName(),
+		})
 	}
 
 	var result []map[string]interface{}
 
 	for rows.Next() {
-		values := make([]interface{}, len(columns))
-		valuePtrs := make([]interface{}, len(columns))
+		values := make([]interface{}, len(colNames))
+		valuePtrs := make([]interface{}, len(colNames))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
 
 		if err := rows.Scan(valuePtrs...); err != nil {
 			log.Printf("GetData Scan Error: %v", err)
-			return nil, err
+			return nil, nil, err
 		}
 
 		entry := make(map[string]interface{})
-		for i, col := range columns {
+		for i, col := range colNames {
 			var v interface{}
 			val := values[i]
 			b, ok := val.([]byte)
@@ -145,7 +159,7 @@ func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName s
 		}
 		result = append(result, entry)
 	}
-	return result, nil
+	return result, cols, nil
 }
 
 func (r *FirebirdRepository) GetTotalCount(params domain.ConnectionParams, tableName string) (int, error) {

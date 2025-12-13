@@ -15,7 +15,10 @@
 - [x] VirtualScroller implementation for large tables.
 - [x] Backend support for pagination (limit, offset, total count).
 - [x] Update support using `RDB$DB_KEY`.
-- [ ] Edit/Delete records in Data Grid (UI implementation pending).
+- [ ] Edit records in Data Grid (UI implementation).
+    - [ ] Create Modal Dialog for editing.
+    - [ ] Identify types (Integer vs String vs BLOB).
+- [ ] Support editing, uploading, and downloading BLOB data.
 - [ ] **Firebird 4/5 Support:** Ensure SQL queries are compatible with modern Firebird versions (ODS 13+).
     - [ ] Detect Server/ODS Version on connect.
 - [ ] DDL Viewer (Show Create Table).

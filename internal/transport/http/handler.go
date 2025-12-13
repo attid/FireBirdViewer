@@ -154,16 +154,17 @@ func (h *Handler) getTableData(c echo.Context) error {
 		offset = val
 	}
 
-	data, count, err := h.svc.GetData(params, tableName, limit, offset)
+	data, cols, count, err := h.svc.GetData(params, tableName, limit, offset)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"data": data,
-		"total": count,
-		"limit": limit,
-		"offset": offset,
+		"data":    data,
+		"columns": cols,
+		"total":   count,
+		"limit":   limit,
+		"offset":  offset,
 	})
 }
 

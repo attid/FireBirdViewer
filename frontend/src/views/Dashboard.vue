@@ -59,9 +59,24 @@
                         :totalRecords="totalRecords"
                         :loading="loadingData"
                     >
-                        <Column v-for="col in columns" :key="col" :field="col" :header="col" style="min-width: 150px">
+                        <!-- Actions Column -->
+                        <Column header="" style="width: 50px; text-align: center" frozen alignFrozen="left">
+                           <template #body="{ data }">
+                               <Button
+                                  v-if="data"
+                                  icon="pi pi-pencil"
+                                  text
+                                  rounded
+                                  size="small"
+                                  @click="openEditDialog(data)"
+                                  class="text-gray-400 hover:text-primary-600"
+                               />
+                           </template>
+                        </Column>
+
+                        <Column v-for="col in displayColumns" :key="col.name" :field="col.name" :header="col.name" style="min-width: 150px">
                             <template #body="{ data }">
-                                <span v-if="data" class="truncate block" :title="data[col]">{{ data[col] }}</span>
+                                <span v-if="data" class="truncate block" :title="data[col.name]">{{ data[col.name] }}</span>
                                 <span v-else class="flex items-center gap-2">
                                     <i class="pi pi-spin pi-spinner text-xs text-gray-300"></i>
                                 </span>
@@ -81,6 +96,15 @@
             </div>
         </main>
     </div>
+
+    <!-- Edit Dialog -->
+    <EditRowDialog
+      v-model:visible="editDialogVisible"
+      :rowData="editingRow"
+      :columns="columns"
+      @save="saveRow"
+    />
+    <Toast />
   </div>
 </template>
 
@@ -92,8 +116,12 @@ import Button from 'primevue/button'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Message from 'primevue/message'
+import Toast from 'primevue/toast'
+import { useToast } from 'primevue/usetoast'
+import EditRowDialog from '../components/EditRowDialog.vue'
 
 const router = useRouter()
+const toast = useToast()
 const tables = ref([])
 const loadingTables = ref(false)
 const selectedTable = ref(null)
@@ -104,7 +132,16 @@ const virtualData = ref([])
 const totalRecords = ref(0)
 const loadingData = ref(false)
 const loadingLazy = ref(false)
-const columns = ref([])
+const columns = ref([]) // Array of {name, type}
+
+// Edit Dialog
+const editDialogVisible = ref(false)
+const editingRow = ref(null)
+
+const displayColumns = computed(() => {
+    // Hide DB_KEY from main view
+    return columns.value.filter(col => col.name !== 'DB_KEY' && col.name !== 'RDB$DB_KEY')
+})
 
 const token = localStorage.getItem('token')
 const api = axios.create({
@@ -154,18 +191,21 @@ const selectTable = async (tableName) => {
             params: { limit: 100, offset: 0 }
         })
 
-        // Backend returns: { data: [], total: int, limit: int, offset: int }
+        // Backend returns: { data: [], columns: [], total: int, limit: int, offset: int }
         const initialData = res.data.data || []
+        columns.value = res.data.columns || []
         totalRecords.value = res.data.total
 
         if (initialData.length > 0) {
-            columns.value = Object.keys(initialData[0])
             // Initialize virtualData array with empty slots for lazy loading
             virtualData.value = Array.from({ length: totalRecords.value })
             // Fill the first chunk
             initialData.forEach((item, index) => {
                 virtualData.value[index] = item
             })
+        } else if (columns.value.length > 0) {
+             // If no data but we have columns (e.g. empty table), we are good
+             virtualData.value = []
         }
     } catch (err) {
         error.value = err.response?.data?.error || "Failed to load data"
@@ -214,6 +254,55 @@ const loadDataLazy = async (event) => {
         console.error("Lazy load failed", err)
     } finally {
         loadingLazy.value = false
+    }
+}
+
+const openEditDialog = (row) => {
+    editingRow.value = row
+    editDialogVisible.value = true
+}
+
+const saveRow = async (updatedRow) => {
+    try {
+        // Assume DB_KEY or RDB$DB_KEY is present
+        const dbKey = updatedRow.DB_KEY || updatedRow['RDB$DB_KEY']
+
+        if (!dbKey) {
+            toast.add({ severity: 'error', summary: 'Error', detail: 'Missing DB_KEY for update', life: 3000 });
+            return
+        }
+
+        await api.put(`/api/table/${selectedTable.value}/data`, {
+            db_key: dbKey,
+            data: updatedRow
+        })
+
+        toast.add({ severity: 'success', summary: 'Success', detail: 'Record updated', life: 3000 });
+        editDialogVisible.value = false
+
+        // Update local state (optimistic or re-fetch?)
+        // Simple approach: update the row in virtualData if we can find it
+        // Since virtualData is sparse, we might need to find index.
+        // For now, let's just update the specific row object in memory since it's reactive.
+        // Note: virtualData contains references to objects.
+
+        // Find the index in virtualData where this row lives?
+        // We don't strictly know the index easily unless we tracked it.
+        // But we can iterate the loaded chunks.
+        // Or simpler: Just re-fetch the current view or do nothing if the user doesn't mind.
+        // Better: Update the `editingRow` reference in place if it matches?
+
+        // Actually, we passed `rowData` to openEditDialog. `editingRow` is a reference to the row in `virtualData`?
+        // No, `editingRow.value = row` sets it to the object.
+        // So updating `row` updates `virtualData`?
+        // Wait, `EditRowDialog` emits `save` with a COPY of the data (`localData`).
+        // So we need to copy back properties to the original row object.
+
+        Object.assign(editingRow.value, updatedRow)
+
+    } catch (err) {
+        console.error(err)
+        toast.add({ severity: 'error', summary: 'Error', detail: err.response?.data?.error || 'Update failed', life: 3000 });
     }
 }
 
