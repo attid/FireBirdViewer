@@ -118,11 +118,48 @@ func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName s
 		return nil, nil, err
 	}
 
+	// Fetch metadata to identify ReadOnly columns (computed)
+	// RDB$UPDATE_FLAG: 1 = regular, 0 = computed (read-only)
+	metaQuery := `
+		SELECT RDB$FIELD_NAME, RDB$UPDATE_FLAG
+		FROM RDB$RELATION_FIELDS
+		WHERE RDB$RELATION_NAME = ?
+	`
+	metaRows, err := db.Query(metaQuery, tableName)
+	readOnlyMap := make(map[string]bool)
+	if err == nil {
+		defer metaRows.Close()
+		for metaRows.Next() {
+			var fName string
+			var uFlag sql.NullInt64
+			if err := metaRows.Scan(&fName, &uFlag); err == nil {
+				fName = strings.TrimSpace(fName)
+				// If uFlag is 0, it is computed/read-only.
+				// Note: RDB$UPDATE_FLAG can be null, treated as regular (1) usually?
+				// Docs say 1 for regular, 0 for computed.
+				if uFlag.Valid && uFlag.Int64 == 0 {
+					readOnlyMap[fName] = true
+				}
+			}
+		}
+	} else {
+		log.Printf("GetData MetaQuery Error (ignoring): %v", err)
+	}
+
 	var cols []domain.Column
 	for i, ct := range colTypes {
+		name := colNames[i]
+		isRO := false
+		if readOnlyMap[name] {
+			isRO = true
+		} else if name == "DB_KEY" || name == "RDB$DB_KEY" {
+			isRO = true
+		}
+
 		cols = append(cols, domain.Column{
-			Name: colNames[i],
-			Type: ct.DatabaseTypeName(),
+			Name:     name,
+			Type:     ct.DatabaseTypeName(),
+			ReadOnly: isRO,
 		})
 	}
 

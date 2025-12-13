@@ -18,6 +18,12 @@
 
         <!-- Boolean/Checkbox (Future improvement, currently using text/dropdown if type known) -->
 
+        <!-- Read-Only Handling -->
+        <div v-else-if="col.read_only" class="p-2 bg-gray-100 dark:bg-gray-800 rounded border border-gray-300 dark:border-gray-700 text-gray-500 font-mono text-sm">
+           {{ localData[col.name] }}
+           <span class="ml-2 text-xs text-gray-400 italic">(Read Only)</span>
+        </div>
+
         <!-- Default Text Input -->
         <InputText
           v-else
@@ -80,8 +86,40 @@ const getInputType = (col) => {
 
 const save = () => {
   saving.value = true
-  // Emit save event with the modified data
-  emit('save', localData.value)
+
+  // Calculate changes
+  const changes = {}
+  // Always include DB_KEY (or find it in original rowData if hidden in localData?)
+  // Assuming localData has it even if hidden
+
+  // Actually, we should just emit the diff + db_key.
+  // But for simplicity, let's just emit the whole object for now?
+  // NO, user requested to send only changes.
+
+  // Need to compare localData with props.rowData
+  for (const key in localData.value) {
+    // If it's DB_KEY, skip adding to changes map logic (handled by parent?)
+    // Or just check equality.
+    if (localData.value[key] !== props.rowData[key]) {
+      changes[key] = localData.value[key]
+    }
+  }
+
+  // If no changes, maybe just close? Or warn?
+  if (Object.keys(changes).length === 0) {
+      // No changes
+      saving.value = false
+      emit('update:visible', false) // Just close
+      return
+  }
+
+  // We need to pass the keys so the parent can identify the row
+  // DB_KEY might be in rowData but not changed.
+  // Let's pass the changes map, but we need to ensure the parent has access to the original DB_KEY
+  // The parent has 'editingRow' which is the original object.
+  // So we just emit 'changes'.
+
+  emit('save', changes)
   saving.value = false
 }
 </script>
