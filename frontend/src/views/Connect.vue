@@ -57,6 +57,8 @@
           </div>
           <Button label="Coming Soon" disabled severity="secondary" outlined class="mt-2" />
         <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
+
+        <DemoInfo v-if="isDemo" />
       </div>
 
     </div>
