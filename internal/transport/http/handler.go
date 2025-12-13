@@ -6,6 +6,7 @@ import (
 	"firebird-web-admin/internal/domain"
 	"firebird-web-admin/internal/service"
 	"net/http"
+	"strconv"
 	"os"
 	"time"
 
@@ -38,6 +39,7 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	api.Use(h.authMiddleware)
 	api.GET("/tables", h.listTables)
 	api.GET("/table/:name/data", h.getTableData)
+	api.PUT("/table/:name/data", h.updateTableData)
 }
 
 func (h *Handler) getConfig(c echo.Context) error {
@@ -136,9 +138,54 @@ func (h *Handler) getTableData(c echo.Context) error {
 	params := c.Get("connParams").(domain.ConnectionParams)
 	tableName := c.Param("name")
 
-	data, err := h.svc.GetData(params, tableName)
+	// Parse pagination params
+	limitStr := c.QueryParam("limit")
+	offsetStr := c.QueryParam("offset")
+
+	limit := 100 // Default
+	offset := 0
+
+	if val, err := strconv.Atoi(limitStr); err == nil && val > 0 {
+		limit = val
+	}
+	if val, err := strconv.Atoi(offsetStr); err == nil && val >= 0 {
+		offset = val
+	}
+
+	data, count, err := h.svc.GetData(params, tableName, limit, offset)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
-	return c.JSON(http.StatusOK, data)
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"data": data,
+		"total": count,
+		"limit": limit,
+		"offset": offset,
+	})
+}
+
+type UpdateRequest struct {
+	DBKey string                 `json:"db_key"`
+	Data  map[string]interface{} `json:"data"`
+}
+
+func (h *Handler) updateTableData(c echo.Context) error {
+	params := c.Get("connParams").(domain.ConnectionParams)
+	tableName := c.Param("name")
+
+	var req UpdateRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	}
+
+	if req.DBKey == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing db_key"})
+	}
+
+	if err := h.svc.UpdateData(params, tableName, req.DBKey, req.Data); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "success"})
 }
