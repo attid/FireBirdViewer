@@ -77,15 +77,22 @@
                 <div v-else class="flex-1 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
                     <DataTable
                         :key="selectedTable"
-                        :value="virtualData"
+                        :value="data"
                         scrollable
                         scrollHeight="flex"
                         class="p-datatable-sm text-sm"
                         stripedRows
                         showGridlines
-                        :virtualScrollerOptions="virtualScrollerOptions"
+                        lazy
+                        paginator
+                        :rows="rows"
+                        :rowsPerPageOptions="[25, 50, 100]"
+                        :first="first"
                         :totalRecords="totalRecords"
                         :loading="loadingData"
+                        @page="onPage"
+                        @sort="onSort"
+                        removableSort
                     >
                         <!-- Actions Column (Only for Tables) -->
                         <Column v-if="activeSection === 'tables'" header="Actions" style="width: 50px; text-align: center">
@@ -102,7 +109,14 @@
                            </template>
                         </Column>
 
-                        <Column v-for="col in displayColumns" :key="col.name" :field="col.name" :header="col.name" style="min-width: 150px">
+                        <Column
+                            v-for="col in displayColumns"
+                            :key="col.name"
+                            :field="col.name"
+                            :header="col.name"
+                            style="min-width: 150px"
+                            :sortable="col.type !== 'BLOB'"
+                        >
                             <template #body="{ data }">
                                 <span v-if="data" class="truncate block" :title="data[col.name]">{{ data[col.name] }}</span>
                                 <span v-else class="flex items-center gap-2">
@@ -160,12 +174,17 @@ const version = ref('')
 const activeSection = ref('tables')
 const procedureSource = ref('')
 
-// Virtual Scroll Data
-const virtualData = ref([])
+// Data State
+const data = ref([])
 const totalRecords = ref(0)
 const loadingData = ref(false)
-const loadingLazy = ref(false)
 const columns = ref([]) // Array of {name, type}
+
+// Pagination & Sort State
+const first = ref(0)
+const rows = ref(25)
+const sortField = ref(null)
+const sortOrder = ref(null) // 1 for asc, -1 for desc
 
 // Edit Dialog
 const editDialogVisible = ref(false)
@@ -253,81 +272,69 @@ const selectTable = async (itemName) => {
 
     selectedTable.value = itemName
     error.value = ''
-    virtualData.value = []
+    data.value = []
     totalRecords.value = 0
     loadingData.value = true
     columns.value = []
     procedureSource.value = ''
 
-    try {
-        if (activeSection.value === 'procedures') {
-            // Fetch procedure source
+    // Reset pagination and sort on new table selection
+    first.value = 0
+    rows.value = 25
+    sortField.value = null
+    sortOrder.value = null
+
+    if (activeSection.value === 'procedures') {
+        try {
             const res = await api.get(`/api/procedure/${itemName}/source`)
             procedureSource.value = res.data.source || 'No source code available or empty.'
-        } else {
-            // Fetch Table/View Data
-            // Initial fetch to get columns and first page of data + count
-            const res = await api.get(`/api/table/${itemName}/data`, {
-                params: { limit: 100, offset: 0 }
-            })
-
-            // Backend returns: { data: [], columns: [], total: int, limit: int, offset: int }
-            const initialData = res.data.data || []
-            columns.value = res.data.columns || []
-            totalRecords.value = res.data.total
-
-            if (initialData.length > 0) {
-                // Initialize virtualData array with empty slots for lazy loading
-                virtualData.value = Array.from({ length: totalRecords.value })
-                // Fill the first chunk
-                initialData.forEach((item, index) => {
-                    virtualData.value[index] = item
-                })
-            } else if (columns.value.length > 0) {
-                // If no data but we have columns (e.g. empty table), we are good
-                virtualData.value = []
-            }
+        } catch(err) {
+            error.value = err.response?.data?.error || "Failed to load procedure source"
+        } finally {
+            loadingData.value = false
         }
+    } else {
+        await loadTableData()
+    }
+}
+
+const onPage = (event) => {
+    first.value = event.first
+    rows.value = event.rows
+    loadTableData()
+}
+
+const onSort = (event) => {
+    sortField.value = event.sortField
+    sortOrder.value = event.sortOrder
+    loadTableData()
+}
+
+const loadTableData = async () => {
+    loadingData.value = true
+    error.value = ''
+
+    try {
+        const params = {
+            limit: rows.value,
+            offset: first.value
+        }
+
+        if (sortField.value) {
+            params.sort_field = sortField.value
+            params.sort_order = sortOrder.value // 1 or -1
+        }
+
+        const res = await api.get(`/api/table/${selectedTable.value}/data`, { params })
+
+        // Backend returns: { data: [], columns: [], total: int, limit: int, offset: int, sort_field, sort_order }
+        data.value = res.data.data || []
+        columns.value = res.data.columns || []
+        totalRecords.value = res.data.total
     } catch (err) {
         error.value = err.response?.data?.error || "Failed to load data"
     } finally {
         loadingData.value = false
-    }
-}
-
-const loadDataLazy = async (event) => {
-    if (!selectedTable.value || activeSection.value === 'procedures') return;
-
-    const { first, last } = event
-    const limit = last - first
-    const offset = first
-
-    console.log(`loadDataLazy called: first=${first}, last=${last}, limit=${limit}, offset=${offset}`)
-
-    if (limit <= 0) {
-        console.warn("loadDataLazy: limit <= 0, skipping request")
-        return
-    }
-
-    loadingLazy.value = true
-
-    try {
-        const res = await api.get(`/api/table/${selectedTable.value}/data`, {
-            params: { limit, offset }
-        })
-
-        const chunk = res.data.data || []
-
-        chunk.forEach((item, index) => {
-            if (first + index < virtualData.value.length) {
-                 virtualData.value[first + index] = item
-            }
-        })
-
-    } catch (err) {
-        console.error("Lazy load failed", err)
-    } finally {
-        loadingLazy.value = false
     }
 }
 
@@ -354,25 +361,8 @@ const saveRow = async (updatedRow) => {
         toast.add({ severity: 'success', summary: 'Success', detail: 'Record updated', life: 3000 });
         editDialogVisible.value = false
 
-        // Update local state (optimistic or re-fetch?)
-        // Simple approach: update the row in virtualData if we can find it
-        // Since virtualData is sparse, we might need to find index.
-        // For now, let's just update the specific row object in memory since it's reactive.
-        // Note: virtualData contains references to objects.
-
-        // Find the index in virtualData where this row lives?
-        // We don't strictly know the index easily unless we tracked it.
-        // But we can iterate the loaded chunks.
-        // Or simpler: Just re-fetch the current view or do nothing if the user doesn't mind.
-        // Better: Update the `editingRow` reference in place if it matches?
-
-        // Actually, we passed `rowData` to openEditDialog. `editingRow` is a reference to the row in `virtualData`?
-        // No, `editingRow.value = row` sets it to the object.
-        // So updating `row` updates `virtualData`?
-        // Wait, `EditRowDialog` emits `save` with a COPY of the data (`localData`).
-        // So we need to copy back properties to the original row object.
-
-        Object.assign(editingRow.value, updatedRow)
+        // Update local state by reloading current page
+        await loadTableData()
 
     } catch (err) {
         console.error(err)
@@ -391,15 +381,6 @@ onMounted(async () => {
         console.error("Failed to fetch version", e)
     }
 })
-
-const virtualScrollerOptions = computed(() => ({
-    itemSize: 35,
-    lazy: true,
-    onLazyLoad: loadDataLazy,
-    showLoader: true,
-    loading: loadingLazy.value,
-    delay: 200
-}))
 </script>
 
 <style>
