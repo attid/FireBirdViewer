@@ -86,9 +86,16 @@
                         class="p-datatable-sm text-sm"
                         stripedRows
                         showGridlines
-                        :virtualScrollerOptions="virtualScrollerOptions"
+                        lazy
+                        paginator
+                        :rows="rows"
+                        :rowsPerPageOptions="[25, 50, 100]"
+                        :first="first"
                         :totalRecords="totalRecords"
                         :loading="loadingData"
+                        @page="onPage"
+                        @sort="onSort"
+                        removableSort
                     >
                         <!-- Actions Column (Only for Tables) -->
                         <Column v-if="activeSection === 'tables'" header="Actions" style="width: 50px; text-align: center">
@@ -105,7 +112,14 @@
                            </template>
                         </Column>
 
-                        <Column v-for="col in displayColumns" :key="col.name" :field="col.name" :header="col.name" style="min-width: 150px">
+                        <Column
+                            v-for="col in displayColumns"
+                            :key="col.name"
+                            :field="col.name"
+                            :header="col.name"
+                            style="min-width: 150px"
+                            :sortable="col.type !== 'BLOB'"
+                        >
                             <template #body="{ data }">
                                 <span v-if="data" class="truncate block" :title="data[col.name]">{{ data[col.name] }}</span>
                                 <span v-else class="flex items-center gap-2">
@@ -173,12 +187,17 @@ const activeSection = ref(null) // 'tables', 'views', 'procedures', 'tool'
 const selectedItemName = ref(null) // Table name, View name, Proc name, or Tool ID
 const procedureSource = ref('')
 
-// Virtual Scroll Data
-const virtualData = ref([])
+// Data State
+const data = ref([])
 const totalRecords = ref(0)
 const loadingData = ref(false)
-const loadingLazy = ref(false)
 const columns = ref([]) // Array of {name, type}
+
+// Pagination & Sort State
+const first = ref(0)
+const rows = ref(25)
+const sortField = ref(null)
+const sortOrder = ref(null) // 1 for asc, -1 for desc
 
 // Edit Dialog
 const editDialogVisible = ref(false)
@@ -393,7 +412,7 @@ const onNodeSelect = (node) => {
 
 const loadItemData = async (itemName) => {
     error.value = ''
-    virtualData.value = []
+    data.value = []
     totalRecords.value = 0
     loadingData.value = true
     columns.value = []
@@ -422,10 +441,8 @@ const loadItemData = async (itemName) => {
                 virtualData.value = []
             }
         }
-    } catch (err) {
-        error.value = err.response?.data?.error || "Failed to load data"
-    } finally {
-        loadingData.value = false
+    } else {
+        await loadTableData()
     }
 }
 
@@ -439,7 +456,9 @@ const loadDataLazy = async (event) => {
 
     if (limit <= 0) return
 
-    loadingLazy.value = true
+const loadTableData = async () => {
+    loadingData.value = true
+    error.value = ''
 
     try {
         const res = await api.get(`/api/table/${selectedItemName.value}/data`, {
@@ -453,9 +472,9 @@ const loadDataLazy = async (event) => {
             }
         })
     } catch (err) {
-        console.error("Lazy load failed", err)
+        error.value = err.response?.data?.error || "Failed to load data"
     } finally {
-        loadingLazy.value = false
+        loadingData.value = false
     }
 }
 
@@ -497,15 +516,6 @@ onMounted(async () => {
         console.error("Failed to fetch version", e)
     }
 })
-
-const virtualScrollerOptions = computed(() => ({
-    itemSize: 35,
-    lazy: true,
-    onLazyLoad: loadDataLazy,
-    showLoader: true,
-    loading: loadingLazy.value,
-    delay: 200
-}))
 </script>
 
 <style>

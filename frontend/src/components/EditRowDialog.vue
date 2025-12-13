@@ -24,6 +24,16 @@
            <span class="ml-2 text-xs text-gray-400 italic">(Read Only)</span>
         </div>
 
+        <!-- Date/Time Picker -->
+        <DatePicker
+          v-else-if="isDate(col)"
+          v-model="localData[col.name]"
+          :showTime="isTimestamp(col)"
+          hourFormat="24"
+          fluid
+          dateFormat="yy-mm-dd"
+        />
+
         <!-- Default Text Input -->
         <InputText
           v-else
@@ -88,7 +98,7 @@ const isBlob = (col) => {
 
 const isDate = (col) => {
   const type = (col.type || '').toUpperCase()
-  return type.includes('TIMESTAMP') || type.includes('DATE') || type.includes('TIME')
+  return type.includes('TIMESTAMP') || type.includes('DATE')
 }
 
 const isTimestamp = (col) => {
@@ -109,13 +119,18 @@ const getInputType = (col) => {
   return 'text'
 }
 
-const formatDateForSQL = (date) => {
+const formatDateForSQL = (date, includeTime = true) => {
     if (!date) return null
-    // Format: YYYY-MM-DD HH:MM:SS
+    // Format: YYYY-MM-DD HH:MM:SS or YYYY-MM-DD
     const pad = (n) => n < 10 ? '0' + n : n
     const y = date.getFullYear()
     const m = pad(date.getMonth() + 1)
     const d = pad(date.getDate())
+
+    if (!includeTime) {
+        return `${y}-${m}-${d}`
+    }
+
     const h = pad(date.getHours())
     const min = pad(date.getMinutes())
     const s = pad(date.getSeconds())
@@ -148,7 +163,7 @@ const save = () => {
 
         // If changed, format it for SQL
         if (newDate instanceof Date) {
-            changes[key] = formatDateForSQL(newDate)
+            changes[key] = formatDateForSQL(newDate, isTimestamp(col))
         } else {
             changes[key] = newVal // Should be null or something
         }
