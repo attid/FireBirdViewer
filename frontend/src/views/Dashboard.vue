@@ -6,58 +6,61 @@
         <span>FireBirdViewer <span class="text-xs font-normal text-gray-400">v{{ version }}</span></span>
         <Button icon="pi pi-sign-out" text rounded aria-label="Logout" @click="logout" size="small" />
       </div>
-      <div class="flex-1 overflow-y-auto p-2 scrollbar-thin">
-         <h3 class="font-semibold px-2 py-2 text-xs text-gray-400 uppercase tracking-wider">{{ activeSectionTitle }}</h3>
-         <div v-if="loadingTables" class="p-4 flex justify-center">
-            <i class="pi pi-spin pi-spinner text-2xl text-primary-500"></i>
-         </div>
-         <ul v-else class="space-y-0.5">
-           <li v-for="item in tables" :key="item.name">
-             <button
-                @click="selectTable(item.name)"
-                :class="['w-full text-left px-3 py-2 rounded-md text-sm transition-colors truncate flex items-center gap-2',
-                    selectedTable === item.name
-                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300 font-medium'
-                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700']"
-             >
-               <i :class="['pi', sectionIcon, 'text-gray-400']" style="font-size: 0.9rem"></i>
-               <span class="truncate">{{ item.name }}</span>
-             </button>
-           </li>
-         </ul>
+
+      <!-- Search Box -->
+      <div class="p-2 border-b border-gray-200 dark:border-gray-700">
+        <IconField iconPosition="left" class="w-full">
+            <InputIcon class="pi pi-search" />
+            <InputText v-model="filterText" placeholder="Search..." class="w-full p-inputtext-sm" />
+        </IconField>
       </div>
 
-      <!-- Navigation -->
-      <div class="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-2 grid grid-cols-3 gap-1">
-          <button
-              v-for="section in ['tables', 'views', 'procedures']"
-              :key="section"
-              @click="switchSection(section)"
-              :class="['flex flex-col items-center justify-center p-2 rounded-md transition-colors',
-                  activeSection === section
-                  ? 'bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
-                  : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700']"
-              :title="section"
-          >
-              <i :class="['pi', getSectionIcon(section), 'text-lg mb-1']"></i>
-              <span class="text-[10px] uppercase font-bold">{{ section }}</span>
-          </button>
+      <!-- Tree -->
+      <div class="flex-1 overflow-y-auto p-2 scrollbar-thin">
+         <div v-if="loadingTree" class="p-4 flex justify-center">
+            <i class="pi pi-spin pi-spinner text-2xl text-primary-500"></i>
+         </div>
+         <Tree
+            v-else
+            :value="filteredTreeNodes"
+            selectionMode="single"
+            v-model:selectionKeys="selectedNodeKey"
+            v-model:expandedKeys="expandedKeys"
+            @nodeSelect="onNodeSelect"
+            class="w-full border-none p-0 bg-transparent text-sm"
+            :pt="{
+                root: { class: 'bg-transparent border-none p-0' },
+                content: { class: 'p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer transition-colors' },
+                label: { class: 'text-gray-700 dark:text-gray-200' },
+                icon: { class: 'text-gray-400 dark:text-gray-500' }
+            }"
+         >
+            <template #default="slotProps">
+                <span class="truncate">{{ slotProps.node.label }}</span>
+            </template>
+         </Tree>
       </div>
     </div>
 
     <!-- Main Content -->
     <div class="flex-1 flex flex-col overflow-hidden w-0">
         <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 shadow-sm h-16 flex items-center justify-between shrink-0">
-            <h2 class="text-xl font-semibold text-gray-800 dark:text-white truncate" v-if="selectedTable">
-                <i :class="['pi', sectionIcon, 'mr-2 text-primary-500']"></i>
-                {{ selectedTable }}
-                <span v-if="activeSection !== 'procedures' && totalRecords !== null" class="ml-2 text-sm text-gray-500 font-normal">({{ totalRecords }} rows)</span>
+            <h2 class="text-xl font-semibold text-gray-800 dark:text-white truncate" v-if="headerTitle">
+                <i :class="['pi', headerIcon, 'mr-2 text-primary-500']"></i>
+                {{ headerTitle }}
+                <span v-if="activeSection === 'tables' && totalRecords !== null" class="ml-2 text-sm text-gray-500 font-normal">({{ totalRecords }} rows)</span>
             </h2>
-            <h2 class="text-xl font-semibold text-gray-400" v-else>Select {{ activeSectionSingular }}</h2>
+            <h2 class="text-xl font-semibold text-gray-400" v-else>Select an item</h2>
         </header>
 
         <main class="flex-1 overflow-auto p-4 bg-gray-50 dark:bg-gray-900 relative">
-            <div v-if="selectedTable" class="h-full flex flex-col">
+            <div v-if="activeSection === 'tool'" class="h-full flex flex-col justify-center items-center text-gray-400">
+                 <i :class="['pi', headerIcon, 'text-6xl mb-4 opacity-50']"></i>
+                 <h3 class="text-2xl font-light">{{ headerTitle }}</h3>
+                 <p class="mt-2 opacity-70">This tool is coming soon.</p>
+            </div>
+
+            <div v-else-if="selectedItemName" class="h-full flex flex-col">
                 <div v-if="error" class="p-4">
                      <Message severity="error">{{ error }}</Message>
                 </div>
@@ -76,8 +79,8 @@
                 <!-- DataTable Container (Tables & Views) -->
                 <div v-else class="flex-1 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
                     <DataTable
-                        :key="selectedTable"
-                        :value="data"
+                        :key="selectedItemName"
+                        :value="virtualData"
                         scrollable
                         scrollHeight="flex"
                         class="p-datatable-sm text-sm"
@@ -134,7 +137,7 @@
             <div v-else class="flex flex-col items-center justify-center h-full text-gray-300 dark:text-gray-600 select-none">
                 <i class="pi pi-database text-8xl mb-6 opacity-50"></i>
                 <p class="text-2xl font-light">Welcome to FireBirdViewer</p>
-                <p class="text-sm mt-2 opacity-70">Select a {{ activeSectionSingular }} from the sidebar to view details</p>
+                <p class="text-sm mt-2 opacity-70">Select an item from the sidebar</p>
             </div>
         </main>
     </div>
@@ -151,7 +154,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import Button from 'primevue/button'
@@ -159,19 +162,29 @@ import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Message from 'primevue/message'
 import Toast from 'primevue/toast'
+import Tree from 'primevue/tree'
+import IconField from 'primevue/iconfield'
+import InputIcon from 'primevue/inputicon'
+import InputText from 'primevue/inputtext'
 import { useToast } from 'primevue/usetoast'
 import EditRowDialog from '../components/EditRowDialog.vue'
 
 const router = useRouter()
 const toast = useToast()
-const tables = ref([])
-const loadingTables = ref(false)
-const selectedTable = ref(null)
-const error = ref('')
-const version = ref('')
 
-// Section state
-const activeSection = ref('tables')
+const version = ref('')
+const error = ref('')
+
+// Tree State
+const loadingTree = ref(false)
+const rawTreeNodes = ref([])
+const filterText = ref('')
+const selectedNodeKey = ref(null)
+const expandedKeys = ref({})
+
+// Main Content State
+const activeSection = ref(null) // 'tables', 'views', 'procedures', 'tool'
+const selectedItemName = ref(null) // Table name, View name, Proc name, or Tool ID
 const procedureSource = ref('')
 
 // Data State
@@ -190,36 +203,89 @@ const sortOrder = ref(null) // 1 for asc, -1 for desc
 const editDialogVisible = ref(false)
 const editingRow = ref(null)
 
-const activeSectionTitle = computed(() => {
-    switch(activeSection.value) {
-        case 'views': return 'Views'
-        case 'procedures': return 'Procedures'
-        default: return 'Tables'
+// Headers
+const headerTitle = computed(() => {
+    if (activeSection.value === 'tool') {
+        if (selectedItemName.value === 'sql-editor') return 'SQL Editor'
+        if (selectedItemName.value === 'db-info') return 'Database Info'
     }
+    return selectedItemName.value
 })
 
-const activeSectionSingular = computed(() => {
-    switch(activeSection.value) {
-        case 'views': return 'view'
-        case 'procedures': return 'procedure'
-        default: return 'table'
+const headerIcon = computed(() => {
+    if (activeSection.value === 'tables') return 'pi-table'
+    if (activeSection.value === 'views') return 'pi-eye'
+    if (activeSection.value === 'procedures') return 'pi-cog'
+    if (activeSection.value === 'tool') {
+        if (selectedItemName.value === 'sql-editor') return 'pi-code'
+        if (selectedItemName.value === 'db-info') return 'pi-info-circle'
     }
+    return 'pi-file'
 })
-
-const sectionIcon = computed(() => getSectionIcon(activeSection.value))
-
-function getSectionIcon(section) {
-    switch(section) {
-        case 'views': return 'pi-eye'
-        case 'procedures': return 'pi-cog'
-        default: return 'pi-table'
-    }
-}
 
 const displayColumns = computed(() => {
-    // Hide DB_KEY from main view
     return columns.value.filter(col => col.name !== 'DB_KEY' && col.name !== 'RDB$DB_KEY')
 })
+
+// Filter Logic
+const filteredTreeNodes = computed(() => {
+    if (!filterText.value) return rawTreeNodes.value
+
+    const text = filterText.value.toLowerCase()
+
+    const filterNode = (node) => {
+        // Check if node itself matches
+        const labelMatches = node.label.toLowerCase().includes(text)
+
+        // Check children
+        let matchingChildren = []
+        if (node.children) {
+            matchingChildren = node.children.map(filterNode).filter(n => n !== null)
+        }
+
+        if (labelMatches || matchingChildren.length > 0) {
+            // If match, we want to expand it if it has children that matched?
+            // PrimeVue Tree with filter automatically handles display usually,
+            // but since we are filtering the value manually, we control expansion.
+            // But expandedKeys is what controls expansion.
+            // If we filter, we might want to expand all matching parents.
+            // But we are not updating expandedKeys here.
+            // We can return 'expanded' property in node, but we are using v-model:expandedKeys.
+            // Does 'expanded' property in node override expandedKeys?
+            // Usually expandedKeys takes precedence.
+            // So if we want auto-expand on filter, we should update expandedKeys.
+            // But side-effect in computed is bad.
+            // We'll rely on user expanding or standard behavior.
+            // Actually, if we use manual filtering, we can just return nodes.
+            // If user searches, they usually expect result to be visible.
+
+            return {
+                ...node,
+                children: matchingChildren
+            }
+        }
+        return null
+    }
+
+    return rawTreeNodes.value.map(filterNode).filter(n => n !== null)
+})
+
+// Watch filter text to auto-expand
+watch(filterText, (newVal) => {
+    if (newVal) {
+        // Expand all nodes that have children in the filtered view?
+        // Simple approach: expand all groups
+        const newKeys = { ...expandedKeys.value }
+        // We can traverse rawTreeNodes and see what matches?
+        // Or just expand the main groups: tools, tables, views, procedures
+        newKeys['tools'] = true
+        newKeys['tables'] = true
+        newKeys['views'] = true
+        newKeys['procedures'] = true
+        expandedKeys.value = newKeys
+    }
+})
+
 
 const token = localStorage.getItem('token')
 const api = axios.create({
@@ -241,36 +307,110 @@ const logout = () => {
     router.push('/')
 }
 
-const switchSection = async (section) => {
-    if (activeSection.value === section) return
-    activeSection.value = section
-    selectedTable.value = null
-    tables.value = []
-    error.value = ''
-    await fetchList()
+const buildTree = (tables, views, procedures) => {
+    return [
+        {
+            key: 'tools',
+            label: 'Tools',
+            icon: 'pi pi-fw pi-cog',
+            children: [
+                { key: 'tool-sql', label: 'SQL Editor', icon: 'pi pi-fw pi-code', data: { type: 'tool', id: 'sql-editor' } },
+                { key: 'tool-info', label: 'Database Info', icon: 'pi pi-fw pi-info-circle', data: { type: 'tool', id: 'db-info' } }
+            ]
+        },
+        {
+            key: 'tables',
+            label: 'Tables',
+            icon: 'pi pi-fw pi-table',
+            children: tables.map(t => ({
+                key: `table-${t.name}`,
+                label: t.name,
+                icon: 'pi pi-fw pi-table',
+                data: { type: 'table', name: t.name }
+            }))
+        },
+        {
+            key: 'views',
+            label: 'Views',
+            icon: 'pi pi-fw pi-eye',
+            children: views.map(v => ({
+                key: `view-${v.name}`,
+                label: v.name,
+                icon: 'pi pi-fw pi-eye',
+                data: { type: 'view', name: v.name }
+            }))
+        },
+        {
+            key: 'procedures',
+            label: 'Procedures',
+            icon: 'pi pi-fw pi-cog',
+            children: procedures.map(p => ({
+                key: `proc-${p.name}`,
+                label: p.name,
+                icon: 'pi pi-fw pi-cog',
+                data: { type: 'procedure', name: p.name }
+            }))
+        }
+    ]
 }
 
-const fetchList = async () => {
-    loadingTables.value = true
+const fetchAll = async () => {
+    loadingTree.value = true
     try {
-        let endpoint = '/api/tables'
-        if (activeSection.value === 'views') endpoint = '/api/views'
-        if (activeSection.value === 'procedures') endpoint = '/api/procedures'
+        const [tablesRes, viewsRes, procsRes] = await Promise.all([
+            api.get('/api/tables'),
+            api.get('/api/views'),
+            api.get('/api/procedures')
+        ])
 
-        const res = await api.get(endpoint)
-        tables.value = res.data
+        rawTreeNodes.value = buildTree(tablesRes.data, viewsRes.data, procsRes.data)
+
     } catch (err) {
-        console.error("Failed to load list", err)
-        error.value = "Failed to load list"
+        console.error("Failed to load tree data", err)
+        error.value = "Failed to load database structure"
     } finally {
-        loadingTables.value = false
+        loadingTree.value = false
     }
 }
 
-const selectTable = async (itemName) => {
-    if (selectedTable.value === itemName) return;
+const onNodeSelect = (node) => {
+    if (node.children && node.children.length > 0) {
+        if (['tools', 'tables', 'views', 'procedures'].includes(node.key)) {
+            // Toggle expansion manually since we want label click to toggle
+            const newKeys = { ...expandedKeys.value }
+            if (newKeys[node.key]) {
+                delete newKeys[node.key]
+            } else {
+                newKeys[node.key] = true
+            }
+            expandedKeys.value = newKeys
+            return
+        }
+    }
 
-    selectedTable.value = itemName
+    if (!node.data) return
+
+    const { type, name, id } = node.data
+
+    if (type === 'tool') {
+        activeSection.value = 'tool'
+        selectedItemName.value = id
+        // Reset data views
+        virtualData.value = []
+        columns.value = []
+        totalRecords.value = 0
+    } else {
+        // Tables, Views, Procedures
+        // Map type to section
+        const sectionMap = { 'table': 'tables', 'view': 'views', 'procedure': 'procedures' }
+        activeSection.value = sectionMap[type]
+        selectedItemName.value = name
+
+        loadItemData(name)
+    }
+}
+
+const loadItemData = async (itemName) => {
     error.value = ''
     data.value = []
     totalRecords.value = 0
@@ -278,59 +418,59 @@ const selectTable = async (itemName) => {
     columns.value = []
     procedureSource.value = ''
 
-    // Reset pagination and sort on new table selection
-    first.value = 0
-    rows.value = 25
-    sortField.value = null
-    sortOrder.value = null
-
-    if (activeSection.value === 'procedures') {
-        try {
+    try {
+        if (activeSection.value === 'procedures') {
             const res = await api.get(`/api/procedure/${itemName}/source`)
             procedureSource.value = res.data.source || 'No source code available or empty.'
-        } catch(err) {
-            error.value = err.response?.data?.error || "Failed to load procedure source"
-        } finally {
-            loadingData.value = false
+        } else {
+            // Tables and Views
+            const res = await api.get(`/api/table/${itemName}/data`, {
+                params: { limit: 100, offset: 0 }
+            })
+
+            const initialData = res.data.data || []
+            columns.value = res.data.columns || []
+            totalRecords.value = res.data.total
+
+            if (initialData.length > 0) {
+                virtualData.value = Array.from({ length: totalRecords.value })
+                initialData.forEach((item, index) => {
+                    virtualData.value[index] = item
+                })
+            } else {
+                virtualData.value = []
+            }
         }
     } else {
         await loadTableData()
     }
 }
 
-const onPage = (event) => {
-    first.value = event.first
-    rows.value = event.rows
-    loadTableData()
-}
 
-const onSort = (event) => {
-    sortField.value = event.sortField
-    sortOrder.value = event.sortOrder
-    loadTableData()
-}
+const loadDataLazy = async (event) => {
+    if (!selectedItemName.value || activeSection.value === 'procedures' || activeSection.value === 'tool') return;
+
+    const { first, last } = event
+    const limit = last - first
+    const offset = first
+
+    if (limit <= 0) return
 
 const loadTableData = async () => {
     loadingData.value = true
     error.value = ''
 
     try {
-        const params = {
-            limit: rows.value,
-            offset: first.value
-        }
+        const res = await api.get(`/api/table/${selectedItemName.value}/data`, {
+            params: { limit, offset }
+        })
 
-        if (sortField.value) {
-            params.sort_field = sortField.value
-            params.sort_order = sortOrder.value // 1 or -1
-        }
-
-        const res = await api.get(`/api/table/${selectedTable.value}/data`, { params })
-
-        // Backend returns: { data: [], columns: [], total: int, limit: int, offset: int, sort_field, sort_order }
-        data.value = res.data.data || []
-        columns.value = res.data.columns || []
-        totalRecords.value = res.data.total
+        const chunk = res.data.data || []
+        chunk.forEach((item, index) => {
+            if (first + index < virtualData.value.length) {
+                 virtualData.value[first + index] = item
+            }
+        })
     } catch (err) {
         error.value = err.response?.data?.error || "Failed to load data"
     } finally {
@@ -345,25 +485,20 @@ const openEditDialog = (row) => {
 
 const saveRow = async (changes) => {
     try {
-        // DB_KEY is in the original row, changes map might not have it.
         const dbKey = editingRow.value.DB_KEY || editingRow.value['RDB$DB_KEY']
-
         if (!dbKey) {
             toast.add({ severity: 'error', summary: 'Error', detail: 'Missing DB_KEY for update', life: 3000 });
             return
         }
 
-        await api.put(`/api/table/${selectedTable.value}/data`, {
+        await api.put(`/api/table/${selectedItemName.value}/data`, {
             db_key: dbKey,
             data: changes
         })
 
         toast.add({ severity: 'success', summary: 'Success', detail: 'Record updated', life: 3000 });
         editDialogVisible.value = false
-
-        // Update local state by reloading current page
-        await loadTableData()
-
+        Object.assign(editingRow.value, changes)
     } catch (err) {
         console.error(err)
         toast.add({ severity: 'error', summary: 'Error', detail: err.response?.data?.error || 'Update failed', life: 3000 });
@@ -371,7 +506,7 @@ const saveRow = async (changes) => {
 }
 
 onMounted(async () => {
-    fetchList()
+    fetchAll()
     try {
         const res = await api.get('/api/config')
         if (res.data.version) {
