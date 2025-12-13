@@ -36,3 +36,15 @@ func (s *Service) GetData(params domain.ConnectionParams, tableName string, limi
 func (s *Service) UpdateData(params domain.ConnectionParams, tableName string, dbKey string, data map[string]interface{}) error {
 	return s.repo.UpdateData(params, tableName, dbKey, data)
 }
+
+func (s *Service) ListViews(params domain.ConnectionParams) ([]domain.Table, error) {
+	return s.repo.ListViews(params)
+}
+
+func (s *Service) ListProcedures(params domain.ConnectionParams) ([]domain.Table, error) {
+	return s.repo.ListProcedures(params)
+}
+
+func (s *Service) GetProcedureSource(params domain.ConnectionParams, procName string) (string, error) {
+	return s.repo.GetProcedureSource(params, procName)
+}

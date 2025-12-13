@@ -39,6 +39,9 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	// Protected routes
 	api.Use(h.authMiddleware)
 	api.GET("/tables", h.listTables)
+	api.GET("/views", h.listViews)
+	api.GET("/procedures", h.listProcedures)
+	api.GET("/procedure/:name/source", h.getProcedureSource)
 	api.GET("/table/:name/data", h.getTableData)
 	api.PUT("/table/:name/data", h.updateTableData)
 }
@@ -140,6 +143,35 @@ func (h *Handler) listTables(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, tables)
+}
+
+func (h *Handler) listViews(c echo.Context) error {
+	params := c.Get("connParams").(domain.ConnectionParams)
+	tables, err := h.svc.ListViews(params)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, tables)
+}
+
+func (h *Handler) listProcedures(c echo.Context) error {
+	params := c.Get("connParams").(domain.ConnectionParams)
+	tables, err := h.svc.ListProcedures(params)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, tables)
+}
+
+func (h *Handler) getProcedureSource(c echo.Context) error {
+	params := c.Get("connParams").(domain.ConnectionParams)
+	procName := c.Param("name")
+
+	source, err := h.svc.GetProcedureSource(params, procName)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]string{"source": source})
 }
 
 func (h *Handler) getTableData(c echo.Context) error {
