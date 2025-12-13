@@ -23,21 +23,25 @@
         <Button label="Connect" @click="connect" :loading="loading" class="mt-4" />
 
         <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
+
+        <DemoInfo v-if="isDemo" />
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
+import DemoInfo from '../components/DemoInfo.vue'
 
 const router = useRouter()
+const isDemo = ref(false)
 const form = ref({
   database: 'localhost:/var/lib/firebird/data/employee.fdb',
   user: 'SYSDBA',
@@ -61,4 +65,13 @@ const connect = async () => {
     loading.value = false
   }
 }
+
+onMounted(async () => {
+  try {
+    const response = await axios.get('/api/config')
+    isDemo.value = response.data.demo
+  } catch (e) {
+    console.error('Failed to fetch config', e)
+  }
+})
 </script>
