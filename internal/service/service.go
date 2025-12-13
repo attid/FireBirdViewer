@@ -21,6 +21,18 @@ func (s *Service) ListTables(params domain.ConnectionParams) ([]domain.Table, er
 	return s.repo.ListTables(params)
 }
 
-func (s *Service) GetData(params domain.ConnectionParams, tableName string) ([]map[string]interface{}, error) {
-	return s.repo.GetData(params, tableName)
+func (s *Service) GetData(params domain.ConnectionParams, tableName string, limit, offset int) ([]map[string]interface{}, int, error) {
+	data, err := s.repo.GetData(params, tableName, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	count, err := s.repo.GetTotalCount(params, tableName)
+	if err != nil {
+		return nil, 0, err
+	}
+	return data, count, nil
+}
+
+func (s *Service) UpdateData(params domain.ConnectionParams, tableName string, dbKey string, data map[string]interface{}) error {
+	return s.repo.UpdateData(params, tableName, dbKey, data)
 }

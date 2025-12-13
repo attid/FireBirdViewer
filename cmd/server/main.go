@@ -27,6 +27,11 @@ func main() {
 	// API Routes
 	handler.RegisterRoutes(e)
 
+	if os.Getenv("DEMO_MODE") == "true" {
+		fmt.Println("!!! DEMO MODE ENABLED !!!")
+		fmt.Println("Only connections to 'firebird5:employee' will be allowed.")
+	}
+
 	// Static Files (Frontend)
 	// In production, we expect the frontend build to be in ./dist or similar
 	cwd, _ := os.Getwd()
