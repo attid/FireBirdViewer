@@ -343,10 +343,10 @@ const openEditDialog = (row) => {
     editDialogVisible.value = true
 }
 
-const saveRow = async (updatedRow) => {
+const saveRow = async (changes) => {
     try {
-        // Assume DB_KEY or RDB$DB_KEY is present
-        const dbKey = updatedRow.DB_KEY || updatedRow['RDB$DB_KEY']
+        // DB_KEY is in the original row, changes map might not have it.
+        const dbKey = editingRow.value.DB_KEY || editingRow.value['RDB$DB_KEY']
 
         if (!dbKey) {
             toast.add({ severity: 'error', summary: 'Error', detail: 'Missing DB_KEY for update', life: 3000 });
@@ -355,7 +355,7 @@ const saveRow = async (updatedRow) => {
 
         await api.put(`/api/table/${selectedTable.value}/data`, {
             db_key: dbKey,
-            data: updatedRow
+            data: changes
         })
 
         toast.add({ severity: 'success', summary: 'Success', detail: 'Record updated', life: 3000 });

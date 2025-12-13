@@ -13,3 +13,10 @@
 4:36:00 PM [vite] (client) hmr update /src/views/Dashboard.vue, /src/style.css
 4:36:13 PM [vite] (client) hmr update /src/components/EditRowDialog.vue, /src/style.css
 5:14:52 PM [vite] (client) hmr update /src/views/Dashboard.vue, /src/style.css
+6:33:41 PM [vite] (client) hmr update /src/components/EditRowDialog.vue, /src/style.css
+6:34:20 PM [vite] (client) hmr update /src/views/Dashboard.vue, /src/style.css
+7:17:23 PM [vite] (client) hmr update /src/components/EditRowDialog.vue, /src/style.css
+7:17:29 PM [vite] (client) hmr update /src/components/EditRowDialog.vue, /src/style.css
+7:17:39 PM [vite] (client) hmr update /src/components/EditRowDialog.vue, /src/style.css
+7:18:30 PM [vite] (client) ✨ new dependencies optimized: primevue/datepicker
+7:18:30 PM [vite] (client) ✨ optimized dependencies changed. reloading
