@@ -12,6 +12,14 @@ import (
 )
 
 func main() {
+	// Read VERSION
+	version, err := os.ReadFile("VERSION")
+	if err == nil {
+		fmt.Printf("FireBirdViewer Version: %s\n", string(version))
+	} else {
+		fmt.Println("FireBirdViewer Version: unknown")
+	}
+
 	e := echo.New()
 
 	// Middleware

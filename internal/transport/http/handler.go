@@ -45,8 +45,14 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 
 func (h *Handler) getConfig(c echo.Context) error {
 	demo := os.Getenv("DEMO_MODE") == "true"
+	versionBytes, _ := os.ReadFile("VERSION")
+	version := string(versionBytes)
+	if version == "" {
+		version = "unknown"
+	}
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"demo": demo,
+		"demo":    demo,
+		"version": version,
 	})
 }
 
