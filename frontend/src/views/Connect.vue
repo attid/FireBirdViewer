@@ -42,6 +42,8 @@
         <Button label="Connect" @click="connect" :loading="loading" class="mt-4 w-full" size="large" />
 
         <Message v-if="error" severity="error" :closable="false" class="mt-2">{{ error }}</Message>
+
+        <DemoInfo v-if="isDemo" />
       </div>
 
       <!-- Authorization (Stub) -->
@@ -78,7 +80,7 @@ const mode = ref('quick') // 'quick' or 'auth'
 
 const isDemo = ref(false)
 const form = ref({
-  database: 'localhost:/var/lib/firebird/data/employee.fdb',
+  database: 'firebird5:employee',
   user: 'SYSDBA',
   password: 'masterkey'
 })
@@ -92,6 +94,10 @@ const connect = async () => {
     const response = await axios.post('/api/connect', form.value)
     const token = response.data.token
     localStorage.setItem('token', token)
+
+    // Save successful connection database to localStorage
+    localStorage.setItem('lastDatabase', form.value.database)
+
     router.push('/dashboard')
   } catch (err) {
     console.error(err)
@@ -102,6 +108,12 @@ const connect = async () => {
 }
 
 onMounted(async () => {
+  // Load saved database if exists
+  const savedDatabase = localStorage.getItem('lastDatabase')
+  if (savedDatabase) {
+    form.value.database = savedDatabase
+  }
+
   try {
     const response = await axios.get('/api/config')
     isDemo.value = response.data.demo

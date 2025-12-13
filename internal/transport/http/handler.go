@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"firebird-web-admin/internal/domain"
 	"firebird-web-admin/internal/service"
+	"fmt"
 	"net/http"
 	"strconv"
 	"os"
@@ -57,6 +58,7 @@ func (h *Handler) connect(c echo.Context) error {
 
 	if os.Getenv("DEMO_MODE") == "true" {
 		if params.Database != "firebird5:employee" {
+			fmt.Printf("Blocked connection attempt to %s in DEMO MODE\n", params.Database)
 			return c.JSON(http.StatusForbidden, map[string]string{"error": "Demo mode: only firebird5:employee allowed"})
 		}
 	}
