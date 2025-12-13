@@ -21,8 +21,13 @@ Lightweight web-based administrator for Firebird SQL databases.
 ### Running with Docker
 
 ```bash
-docker build -t firebird-viewer .
-docker run -p 8080:8080 firebird-viewer
+docker pull ghcr.io/attid/firebirdviewer:latest
+```
+or build and run
+
+```bash
+docker build -t firebirdviewer .
+docker run -p 8080:8080 firebirdviewer
 ```
 Access the application at `http://localhost:8080`.
 
