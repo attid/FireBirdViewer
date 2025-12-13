@@ -3,7 +3,7 @@
     <!-- Sidebar -->
     <div class="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col flex-shrink-0">
       <div class="p-4 font-bold text-lg border-b border-gray-200 dark:border-gray-700 flex justify-between items-center text-primary-600 dark:text-primary-400">
-        <span>FireBirdViewer</span>
+        <span>FireBirdViewer <span class="text-xs font-normal text-gray-400">v{{ version }}</span></span>
         <Button icon="pi pi-sign-out" text rounded aria-label="Logout" @click="logout" size="small" />
       </div>
       <div class="flex-1 overflow-y-auto p-2 scrollbar-thin">
@@ -59,7 +59,7 @@
                         :loading="loadingData"
                     >
                         <!-- Actions Column -->
-                        <Column header="" style="width: 50px; text-align: center" frozen alignFrozen="left">
+                        <Column header="Actions" style="width: 50px; text-align: center">
                            <template #body="{ data }">
                                <Button
                                   v-if="data"
@@ -125,6 +125,7 @@ const tables = ref([])
 const loadingTables = ref(false)
 const selectedTable = ref(null)
 const error = ref('')
+const version = ref('')
 
 // Virtual Scroll Data
 const virtualData = ref([])
@@ -296,8 +297,16 @@ const saveRow = async (updatedRow) => {
     }
 }
 
-onMounted(() => {
+onMounted(async () => {
     fetchTables()
+    try {
+        const res = await api.get('/api/config')
+        if (res.data.version) {
+            version.value = res.data.version
+        }
+    } catch (e) {
+        console.error("Failed to fetch version", e)
+    }
 })
 </script>
 
