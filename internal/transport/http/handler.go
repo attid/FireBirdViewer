@@ -7,6 +7,7 @@ import (
 	"firebird-web-admin/internal/service"
 	"net/http"
 	"strconv"
+	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -31,6 +32,7 @@ type Claims struct {
 
 func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	api := e.Group("/api")
+	api.GET("/config", h.getConfig)
 	api.POST("/connect", h.connect)
 
 	// Protected routes
@@ -40,10 +42,23 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	api.PUT("/table/:name/data", h.updateTableData)
 }
 
+func (h *Handler) getConfig(c echo.Context) error {
+	demo := os.Getenv("DEMO_MODE") == "true"
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"demo": demo,
+	})
+}
+
 func (h *Handler) connect(c echo.Context) error {
 	var params domain.ConnectionParams
 	if err := c.Bind(&params); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request"})
+	}
+
+	if os.Getenv("DEMO_MODE") == "true" {
+		if params.Database != "firebird5:employee" {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "Demo mode: only firebird5:employee allowed"})
+		}
 	}
 
 	if err := h.svc.Connect(params); err != nil {
