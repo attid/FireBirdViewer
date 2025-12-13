@@ -8,7 +8,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: attid/FireBirdViewer
+  IMAGE_NAME: attid/firebirdviewer
 
 jobs:
   build-and-push:
