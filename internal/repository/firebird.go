@@ -13,7 +13,7 @@ import (
 type Repository interface {
 	TestConnection(params domain.ConnectionParams) error
 	ListTables(params domain.ConnectionParams) ([]domain.Table, error)
-	GetData(params domain.ConnectionParams, tableName string, limit, offset int) ([]map[string]interface{}, []domain.Column, error)
+	GetData(params domain.ConnectionParams, tableName string, limit, offset int, sortField string, sortOrder string) ([]map[string]interface{}, []domain.Column, error)
 	GetTotalCount(params domain.ConnectionParams, tableName string) (int, error)
 	UpdateData(params domain.ConnectionParams, tableName string, dbKey string, data map[string]interface{}) error
 	ListViews(params domain.ConnectionParams) ([]domain.Table, error)
@@ -88,7 +88,7 @@ func (r *FirebirdRepository) ListTables(params domain.ConnectionParams) ([]domai
 	return tables, nil
 }
 
-func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName string, limit, offset int) ([]map[string]interface{}, []domain.Column, error) {
+func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName string, limit, offset int, sortField string, sortOrder string) ([]map[string]interface{}, []domain.Column, error) {
 	connStr := r.getConnectionString(params)
 	db, err := sql.Open("firebirdsql", connStr)
 	if err != nil {
@@ -99,7 +99,29 @@ func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName s
 	// Use FIRST/SKIP syntax for pagination
 	// Fetching RDB$DB_KEY as hex string to identify rows for updates
 	// Using table alias 't' to support "t.*" along with "t.RDB$DB_KEY" which is safer/required in some FB versions
-	query := fmt.Sprintf("SELECT FIRST %d SKIP %d t.RDB$DB_KEY, t.* FROM \"%s\" t", limit, offset, tableName)
+
+	// Sorting
+	orderByClause := ""
+	if sortField != "" {
+		// Sanitize/Quote sortField. Firebird identifiers in double quotes are case sensitive and allow spaces.
+		// We trust the input to be a valid column name or minimal sanity check.
+		// Simple anti-SQL injection: ensure it doesn't contain quotes or semicolons, or just quote it.
+		// Quoting is safest for valid identifiers.
+		// NOTE: sortField should be sanitized more rigorously in a real app or checked against columns.
+		// For now we assume typical column names.
+		safeField := strings.ReplaceAll(sortField, "\"", "") // remove quotes if any
+		safeField = "\"" + safeField + "\""
+
+		order := "ASC"
+		if strings.ToUpper(sortOrder) == "DESC" || sortOrder == "-1" {
+			order = "DESC"
+		}
+
+		orderByClause = fmt.Sprintf("ORDER BY %s %s", safeField, order)
+	}
+
+	// For Firebird: SELECT FIRST N SKIP M ... ORDER BY ...
+	query := fmt.Sprintf("SELECT FIRST %d SKIP %d t.RDB$DB_KEY, t.* FROM \"%s\" t %s", limit, offset, tableName, orderByClause)
 	log.Printf("GetData Query: %s", query)
 
 	rows, err := db.Query(query)
