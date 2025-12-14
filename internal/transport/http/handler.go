@@ -181,8 +181,8 @@ func (h *Handler) getTableData(c echo.Context) error {
 	// Parse pagination params
 	limitStr := c.QueryParam("limit")
 	offsetStr := c.QueryParam("offset")
-	sortField := c.QueryParam("sort_field")
-	sortOrder := c.QueryParam("sort_order")
+	sortField := c.QueryParam("sortField")
+	sortOrder := c.QueryParam("sortOrder")
 
 	limit := 100 // Default
 	offset := 0
@@ -200,13 +200,13 @@ func (h *Handler) getTableData(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"data":       data,
-		"columns":    cols,
-		"total":      count,
-		"limit":      limit,
-		"offset":     offset,
-		"sort_field": sortField,
-		"sort_order": sortOrder,
+		"data":      data,
+		"columns":   cols,
+		"total":     count,
+		"limit":     limit,
+		"offset":    offset,
+		"sortField": sortField,
+		"sortOrder": sortOrder,
 	})
 }
 
