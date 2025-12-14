@@ -19,6 +19,8 @@ type Repository interface {
 	ListViews(params domain.ConnectionParams) ([]domain.Table, error)
 	ListProcedures(params domain.ConnectionParams) ([]domain.Table, error)
 	GetProcedureSource(params domain.ConnectionParams, procName string) (string, error)
+	GetProcedureParameters(params domain.ConnectionParams, procName string) ([]domain.ProcedureParameter, error)
+	ExecuteProcedure(params domain.ConnectionParams, procName string, inputParams map[string]interface{}) ([]map[string]interface{}, []domain.Column, error)
 }
 
 type FirebirdRepository struct{}
@@ -131,44 +133,49 @@ func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName s
 	}
 	defer rows.Close()
 
+	return r.scanRows(rows, tableName, db)
+}
+
+// scanRows is a helper to process result rows and metadata
+func (r *FirebirdRepository) scanRows(rows *sql.Rows, relationName string, db *sql.DB) ([]map[string]interface{}, []domain.Column, error) {
 	colNames, err := rows.Columns()
 	if err != nil {
-		log.Printf("GetData Columns Error: %v", err)
+		log.Printf("scanRows Columns Error: %v", err)
 		return nil, nil, err
 	}
 
 	colTypes, err := rows.ColumnTypes()
 	if err != nil {
-		log.Printf("GetData ColumnTypes Error: %v", err)
+		log.Printf("scanRows ColumnTypes Error: %v", err)
 		return nil, nil, err
 	}
 
 	// Fetch metadata to identify ReadOnly columns (computed)
 	// RDB$UPDATE_FLAG: 1 = regular, 0 = computed (read-only)
-	metaQuery := `
-		SELECT RDB$FIELD_NAME, RDB$UPDATE_FLAG
-		FROM RDB$RELATION_FIELDS
-		WHERE RDB$RELATION_NAME = ?
-	`
-	metaRows, err := db.Query(metaQuery, tableName)
+	// We only do this if relationName is provided (it might be empty for procedure results)
 	readOnlyMap := make(map[string]bool)
-	if err == nil {
-		defer metaRows.Close()
-		for metaRows.Next() {
-			var fName string
-			var uFlag sql.NullInt64
-			if err := metaRows.Scan(&fName, &uFlag); err == nil {
-				fName = strings.TrimSpace(fName)
-				// If uFlag is 0, it is computed/read-only.
-				// Note: RDB$UPDATE_FLAG can be null, treated as regular (1) usually?
-				// Docs say 1 for regular, 0 for computed.
-				if uFlag.Valid && uFlag.Int64 == 0 {
-					readOnlyMap[fName] = true
+	if relationName != "" {
+		metaQuery := `
+			SELECT RDB$FIELD_NAME, RDB$UPDATE_FLAG
+			FROM RDB$RELATION_FIELDS
+			WHERE RDB$RELATION_NAME = ?
+		`
+		metaRows, err := db.Query(metaQuery, relationName)
+		if err == nil {
+			defer metaRows.Close()
+			for metaRows.Next() {
+				var fName string
+				var uFlag sql.NullInt64
+				if err := metaRows.Scan(&fName, &uFlag); err == nil {
+					fName = strings.TrimSpace(fName)
+					if uFlag.Valid && uFlag.Int64 == 0 {
+						readOnlyMap[fName] = true
+					}
 				}
 			}
+		} else {
+			log.Printf("scanRows MetaQuery Error (ignoring): %v", err)
 		}
-	} else {
-		log.Printf("GetData MetaQuery Error (ignoring): %v", err)
 	}
 
 	var cols []domain.Column
@@ -198,7 +205,7 @@ func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName s
 		}
 
 		if err := rows.Scan(valuePtrs...); err != nil {
-			log.Printf("GetData Scan Error: %v", err)
+			log.Printf("scanRows Scan Error: %v", err)
 			return nil, nil, err
 		}
 
@@ -223,6 +230,7 @@ func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName s
 	}
 	return result, cols, nil
 }
+
 
 func (r *FirebirdRepository) GetTotalCount(params domain.ConnectionParams, tableName string) (int, error) {
 	connStr := r.getConnectionString(params)
@@ -363,9 +371,6 @@ func (r *FirebirdRepository) GetProcedureSource(params domain.ConnectionParams, 
 		WHERE RDB$PROCEDURE_NAME = ?
 	`
 	var source sql.NullString
-	// Firebird usually stores names in uppercase, but let's try exact match first or handle case sensitivity.
-	// Usually system tables store uppercase. The user provided input might be whatever.
-	// For now, let's assume exact match.
 	if err := db.QueryRow(query, strings.ToUpper(procName)).Scan(&source); err != nil {
 		log.Printf("GetProcedureSource error: %v", err)
 		return "", err
@@ -375,4 +380,116 @@ func (r *FirebirdRepository) GetProcedureSource(params domain.ConnectionParams, 
 		return source.String, nil
 	}
 	return "", nil
+}
+
+func (r *FirebirdRepository) GetProcedureParameters(params domain.ConnectionParams, procName string) ([]domain.ProcedureParameter, error) {
+	connStr := r.getConnectionString(params)
+	db, err := sql.Open("firebirdsql", connStr)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	// RDB$PARAMETER_TYPE: 0 = Input, 1 = Output
+	query := `
+		SELECT RDB$PARAMETER_NAME
+		FROM RDB$PROCEDURE_PARAMETERS
+		WHERE RDB$PROCEDURE_NAME = ?
+		AND RDB$PARAMETER_TYPE = 0
+		ORDER BY RDB$PARAMETER_NUMBER
+	`
+	rows, err := db.Query(query, strings.ToUpper(procName))
+	if err != nil {
+		log.Printf("GetProcedureParameters error: %v", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var paramsList []domain.ProcedureParameter
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		paramsList = append(paramsList, domain.ProcedureParameter{
+			Name: strings.TrimSpace(name),
+			Type: "STRING", // Defaulting to string for input UI, can be enhanced by joining RDB$FIELDS
+		})
+	}
+	return paramsList, nil
+}
+
+func (r *FirebirdRepository) ExecuteProcedure(params domain.ConnectionParams, procName string, inputParams map[string]interface{}) ([]map[string]interface{}, []domain.Column, error) {
+	connStr := r.getConnectionString(params)
+	db, err := sql.Open("firebirdsql", connStr)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer db.Close()
+
+	// 1. Determine execution mode by checking source for "SUSPEND"
+	source, err := r.GetProcedureSource(params, procName)
+	if err != nil {
+		// If fails, default to selectable or try to execute anyway
+		log.Printf("ExecuteProcedure: could not get source, proceeding cautiously. Error: %v", err)
+	}
+
+	isSelectable := false
+	if strings.Contains(strings.ToUpper(source), "SUSPEND") {
+		isSelectable = true
+	}
+
+	// 2. Fetch parameter order to construct query correctly
+	// We need ALL input parameters in order
+	// Actually, we need to bind them in order.
+	paramOrderQuery := `
+		SELECT RDB$PARAMETER_NAME
+		FROM RDB$PROCEDURE_PARAMETERS
+		WHERE RDB$PROCEDURE_NAME = ?
+		AND RDB$PARAMETER_TYPE = 0
+		ORDER BY RDB$PARAMETER_NUMBER
+	`
+	pRows, err := db.Query(paramOrderQuery, strings.ToUpper(procName))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer pRows.Close()
+
+	var orderedParams []interface{}
+	var paramPlaceholders []string
+
+	for pRows.Next() {
+		var pName string
+		if err := pRows.Scan(&pName); err != nil {
+			return nil, nil, err
+		}
+		pName = strings.TrimSpace(pName)
+		val, ok := inputParams[pName]
+		if !ok {
+			// Handle missing param? pass null or error?
+			// For now pass nil
+			orderedParams = append(orderedParams, nil)
+		} else {
+			orderedParams = append(orderedParams, val)
+		}
+		paramPlaceholders = append(paramPlaceholders, "?")
+	}
+
+	var query string
+	if isSelectable {
+		query = fmt.Sprintf("SELECT * FROM \"%s\"(%s)", strings.ToUpper(procName), strings.Join(paramPlaceholders, ", "))
+	} else {
+		query = fmt.Sprintf("EXECUTE PROCEDURE \"%s\"(%s)", strings.ToUpper(procName), strings.Join(paramPlaceholders, ", "))
+	}
+
+	log.Printf("ExecuteProcedure Query: %s, Args: %v", query, orderedParams)
+
+	rows, err := db.Query(query, orderedParams...)
+	if err != nil {
+		log.Printf("ExecuteProcedure DB Error: %v", err)
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	return r.scanRows(rows, "", db)
 }

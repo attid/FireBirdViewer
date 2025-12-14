@@ -42,6 +42,8 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	api.GET("/views", h.listViews)
 	api.GET("/procedures", h.listProcedures)
 	api.GET("/procedure/:name/source", h.getProcedureSource)
+	api.GET("/procedure/:name/parameters", h.getProcedureParameters)
+	api.POST("/procedure/:name/execute", h.executeProcedure)
 	api.GET("/table/:name/data", h.getTableData)
 	api.PUT("/table/:name/data", h.updateTableData)
 }
@@ -172,6 +174,43 @@ func (h *Handler) getProcedureSource(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]string{"source": source})
+}
+
+func (h *Handler) getProcedureParameters(c echo.Context) error {
+	params := c.Get("connParams").(domain.ConnectionParams)
+	procName := c.Param("name")
+
+	paramsList, err := h.svc.GetProcedureParameters(params, procName)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, paramsList)
+}
+
+func (h *Handler) executeProcedure(c echo.Context) error {
+	params := c.Get("connParams").(domain.ConnectionParams)
+	procName := c.Param("name")
+
+	var inputParams map[string]interface{}
+	if err := c.Bind(&inputParams); err != nil {
+		// If body is empty or invalid, assume no params or error?
+		// Firebird needs exact params. If we fail to parse, proceed with empty map if binding failed on empty body.
+		// Echo Bind might return error on empty body if header says JSON.
+		inputParams = make(map[string]interface{})
+	}
+
+	data, cols, err := h.svc.ExecuteProcedure(params, procName, inputParams)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"data":    data,
+		"columns": cols,
+		// No total count for procedures unless we count specifically, which is expensive.
+		// Frontend should handle missing 'total' gracefully or we calculate logic.
+		"total": len(data),
+	})
 }
 
 func (h *Handler) getTableData(c echo.Context) error {
