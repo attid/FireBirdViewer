@@ -37,6 +37,18 @@ func (s *Service) UpdateData(params domain.ConnectionParams, tableName string, d
 	return s.repo.UpdateData(params, tableName, dbKey, data)
 }
 
+func (s *Service) InsertData(params domain.ConnectionParams, tableName string, data map[string]interface{}) error {
+	return s.repo.InsertData(params, tableName, data)
+}
+
+func (s *Service) DeleteData(params domain.ConnectionParams, tableName string, dbKey string) error {
+	return s.repo.DeleteData(params, tableName, dbKey)
+}
+
+func (s *Service) GetTableDDL(params domain.ConnectionParams, tableName string) (string, error) {
+	return s.repo.GetTableDDL(params, tableName)
+}
+
 func (s *Service) ListViews(params domain.ConnectionParams) ([]domain.Table, error) {
 	return s.repo.ListViews(params)
 }

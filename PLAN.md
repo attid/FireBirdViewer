@@ -6,7 +6,7 @@
 - [x] Repository setup and Docker.
 - [x] "Quick Connect" mode (Stateless).
 - [x] View list of tables.
-- [x] Execute arbitrary SQL (SELECT) - *Partially implemented via Grid? Need to verify SQL Editor presence.* (Note: SQL Editor not yet seen in code, focusing on Grid view first).
+- [x] Execute arbitrary SQL (SELECT).
 - [x] Display results in a table (Data Grid).
 - [x] Fix UI/UX issues (Layout, Tailwind integration).
 - [x] Rename project to "FireBirdViewer".
@@ -15,14 +15,15 @@
 - [x] VirtualScroller implementation for large tables.
 - [x] Backend support for pagination (limit, offset, total count).
 - [x] Update support using `RDB$DB_KEY`.
-- [ ] Edit records in Data Grid (UI implementation).
-    - [ ] Create Modal Dialog for editing.
-    - [ ] Identify types (Integer vs String vs BLOB).
+- [x] Edit records in Data Grid (UI implementation).
+    - [x] Create Modal Dialog for editing.
+    - [x] Identify types (Integer vs String vs BLOB).
+    - [x] Create / Delete records.
 - [ ] Support editing, uploading, and downloading BLOB data.
 - [ ] **Firebird 4/5 Support:** Ensure SQL queries are compatible with modern Firebird versions (ODS 13+).
     - [ ] Detect Server/ODS Version on connect.
-- [ ] DDL Viewer (Show Create Table).
-- [ ] SQL Editor with syntax highlighting (Monaco/CodeMirror).
+- [x] DDL Viewer (Show Create Table).
+- [x] SQL Editor with syntax highlighting (Monaco/CodeMirror).
 
 ### Phase 3: v1.0 (Workspace & Security)
 - [ ] **Authorization Mode (Stateful):**
@@ -35,15 +36,7 @@
 - [ ] Localization (i18n) - Russian/English.
 
 ## Current Tasks (Immediate)
-- [x] **Fix Frontend Stack:** Install and configure Tailwind CSS.
-- [x] **Login Page:**
-    - [x] Implement Tabs: "Quick Connect" vs "Authorization".
-    - [x] Fix form alignment.
-- [x] **Dashboard:**
-    - [x] Fix Sidebar/Content layout.
-    - [x] Rename all titles to "FireBirdViewer".
-    - [x] Implement VirtualScroller.
-- [x] **Backend:**
-    - [x] Fix pagination APIs.
-    - [x] Fix SQL compatibility for Firebird 4/5 (Alias usage).
-- [x] **Documentation:** Update README.
+- [x] **Table View Enhancements:**
+    - [x] Implement Tabs: Data, DDL, Query.
+    - [x] Implement Insert/Delete functionality.
+    - [x] Implement DDL generation.

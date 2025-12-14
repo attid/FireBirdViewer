@@ -23,6 +23,9 @@ type Repository interface {
 	ExecuteProcedure(params domain.ConnectionParams, procName string, inputParams map[string]interface{}) ([]map[string]interface{}, []domain.Column, error)
 	ExecuteQuery(params domain.ConnectionParams, query string) ([]map[string]interface{}, []domain.Column, error)
 	GetAllMetadata(params domain.ConnectionParams) ([]domain.TableMetadata, error)
+	InsertData(params domain.ConnectionParams, tableName string, data map[string]interface{}) error
+	DeleteData(params domain.ConnectionParams, tableName string, dbKey string) error
+	GetTableDDL(params domain.ConnectionParams, tableName string) (string, error)
 }
 
 type FirebirdRepository struct{}
@@ -292,6 +295,177 @@ func (r *FirebirdRepository) UpdateData(params domain.ConnectionParams, tableNam
 		log.Printf("UpdateData Error: %v", err)
 	}
 	return err
+}
+
+func (r *FirebirdRepository) InsertData(params domain.ConnectionParams, tableName string, data map[string]interface{}) error {
+	connStr := r.getConnectionString(params)
+	db, err := sql.Open("firebirdsql", connStr)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	cols := []string{}
+	placeholders := []string{}
+	args := []interface{}{}
+
+	for col, val := range data {
+		cols = append(cols, fmt.Sprintf("\"%s\"", col))
+		placeholders = append(placeholders, "?")
+		args = append(args, val)
+	}
+
+	if len(cols) == 0 {
+		return fmt.Errorf("no data to insert")
+	}
+
+	query := fmt.Sprintf("INSERT INTO \"%s\" (%s) VALUES (%s)", tableName, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+	log.Printf("InsertData Query: %s, Args: %v", query, args)
+
+	_, err = db.Exec(query, args...)
+	if err != nil {
+		log.Printf("InsertData Error: %v", err)
+	}
+	return err
+}
+
+func (r *FirebirdRepository) DeleteData(params domain.ConnectionParams, tableName string, dbKey string) error {
+	connStr := r.getConnectionString(params)
+	db, err := sql.Open("firebirdsql", connStr)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	// Convert hex string dbKey back to bytes
+	var keyBytes []byte
+	_, err = fmt.Sscanf(dbKey, "%x", &keyBytes)
+	if err != nil {
+		return fmt.Errorf("invalid db_key format")
+	}
+
+	query := fmt.Sprintf("DELETE FROM \"%s\" WHERE RDB$DB_KEY = ?", tableName)
+	log.Printf("DeleteData Query: %s", query)
+
+	_, err = db.Exec(query, keyBytes)
+	if err != nil {
+		log.Printf("DeleteData Error: %v", err)
+	}
+	return err
+}
+
+func (r *FirebirdRepository) GetTableDDL(params domain.ConnectionParams, tableName string) (string, error) {
+	connStr := r.getConnectionString(params)
+	db, err := sql.Open("firebirdsql", connStr)
+	if err != nil {
+		return "", err
+	}
+	defer db.Close()
+
+	// Fetch columns and basic types
+	// This is a simplified DDL generator
+	query := `
+		SELECT
+			rf.RDB$FIELD_NAME,
+			f.RDB$FIELD_TYPE,
+			f.RDB$FIELD_LENGTH,
+			f.RDB$FIELD_PRECISION,
+			f.RDB$FIELD_SCALE,
+			rf.RDB$NULL_FLAG
+		FROM RDB$RELATION_FIELDS rf
+		JOIN RDB$FIELDS f ON rf.RDB$FIELD_SOURCE = f.RDB$FIELD_NAME
+		WHERE rf.RDB$RELATION_NAME = ?
+		ORDER BY rf.RDB$FIELD_POSITION
+	`
+	rows, err := db.Query(query, strings.ToUpper(tableName))
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("CREATE TABLE \"%s\" (\n", strings.ToUpper(tableName)))
+
+	var lines []string
+	for rows.Next() {
+		var name string
+		var fType, fLen, fPrec, fScale int
+		var nullFlag sql.NullInt16
+
+		if err := rows.Scan(&name, &fType, &fLen, &fPrec, &fScale, &nullFlag); err != nil {
+			return "", err
+		}
+
+		name = strings.TrimSpace(name)
+		typeStr := "UNKNOWN"
+
+		// Basic Type Mapping (Approximate)
+		switch fType {
+		case 7:
+			typeStr = "SMALLINT"
+		case 8:
+			typeStr = "INTEGER"
+		case 10:
+			typeStr = "FLOAT"
+		case 12:
+			typeStr = "DATE"
+		case 13:
+			typeStr = "TIME"
+		case 14:
+			typeStr = fmt.Sprintf("CHAR(%d)", fLen)
+		case 16:
+			if fScale < 0 {
+				typeStr = fmt.Sprintf("DECIMAL(%d, %d)", fPrec, -fScale)
+			} else {
+				typeStr = "BIGINT"
+			}
+		case 27:
+			typeStr = "DOUBLE PRECISION"
+		case 35:
+			typeStr = "TIMESTAMP"
+		case 37:
+			typeStr = fmt.Sprintf("VARCHAR(%d)", fLen)
+		case 261:
+			typeStr = "BLOB"
+		default:
+			typeStr = fmt.Sprintf("TYPE_%d", fType)
+		}
+
+		line := fmt.Sprintf("    \"%s\" %s", name, typeStr)
+		if nullFlag.Valid && nullFlag.Int16 == 1 {
+			line += " NOT NULL"
+		}
+		lines = append(lines, line)
+	}
+	sb.WriteString(strings.Join(lines, ",\n"))
+
+	// PK Constraint
+	// (Simplified, assuming single PK constraint for now)
+	pkQuery := `
+		SELECT iseg.RDB$FIELD_NAME
+		FROM RDB$RELATION_CONSTRAINTS rc
+		JOIN RDB$INDEX_SEGMENTS iseg ON rc.RDB$INDEX_NAME = iseg.RDB$INDEX_NAME
+		WHERE rc.RDB$RELATION_NAME = ? AND rc.RDB$CONSTRAINT_TYPE = 'PRIMARY KEY'
+		ORDER BY iseg.RDB$FIELD_POSITION
+	`
+	pkRows, err := db.Query(pkQuery, strings.ToUpper(tableName))
+	if err == nil {
+		defer pkRows.Close()
+		var pkCols []string
+		for pkRows.Next() {
+			var pkCol string
+			if err := pkRows.Scan(&pkCol); err == nil {
+				pkCols = append(pkCols, strings.TrimSpace(pkCol))
+			}
+		}
+		if len(pkCols) > 0 {
+			sb.WriteString(fmt.Sprintf(",\n    CONSTRAINT PK_%s PRIMARY KEY (%s)", strings.ToUpper(tableName), strings.Join(pkCols, ", ")))
+		}
+	}
+
+	sb.WriteString("\n);")
+
+	return sb.String(), nil
 }
 
 func (r *FirebirdRepository) ListViews(params domain.ConnectionParams) ([]domain.Table, error) {
