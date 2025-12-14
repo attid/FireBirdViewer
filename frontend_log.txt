@@ -28,3 +28,7 @@ AggregateError [ECONNREFUSED]:
     at internalConnectMultiple (node:net:1134:18)
     at afterConnectMultiple (node:net:1715:7)
 1:24:52 PM [vite] (client) hmr update /src/views/Dashboard.vue, /src/style.css
+6:40:52 PM [vite] (client) hmr update /src/views/Dashboard.vue, /src/style.css
+6:42:05 PM [vite] (client) hmr update /src/views/Dashboard.vue, /src/style.css
+6:42:18 PM [vite] (client) ✨ new dependencies optimized: primevue/selectbutton
+6:42:18 PM [vite] (client) ✨ optimized dependencies changed. reloading
