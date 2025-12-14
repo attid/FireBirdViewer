@@ -93,7 +93,7 @@
                     <!-- Results View -->
                     <div v-else class="flex-1 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
                         <DataTable
-                            :value="virtualData"
+                            :value="tableData"
                             scrollable
                             scrollHeight="flex"
                             class="p-datatable-sm text-sm"
@@ -122,7 +122,7 @@
                 <div v-else class="flex-1 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
                     <DataTable
                         :key="selectedItemName"
-                        :value="virtualData"
+                        :value="tableData"
                         scrollable
                         scrollHeight="flex"
                         class="p-datatable-sm text-sm"
@@ -243,7 +243,7 @@ const procViewMode = ref('source') // 'source' or 'results'
 
 // Data State
 const data = ref([])
-const virtualData = ref([])
+const tableData = ref([])
 const totalRecords = ref(0)
 const loadingData = ref(false)
 const columns = ref([]) // Array of {name, type}
@@ -435,7 +435,7 @@ const onNodeSelect = (node) => {
         activeSection.value = 'tool'
         selectedItemName.value = id
         // Reset data views
-        virtualData.value = []
+        tableData.value = []
         columns.value = []
         totalRecords.value = 0
     } else {
@@ -470,21 +470,13 @@ const loadItemData = async (itemName) => {
         } else {
             // Tables and Views
             const res = await api.get(`/api/table/${itemName}/data`, {
-                params: { limit: 100, offset: 0 }
+                params: { limit: rows.value, offset: 0 }
             })
 
             const initialData = res.data.data || []
             columns.value = res.data.columns || []
             totalRecords.value = res.data.total
-
-            if (initialData.length > 0) {
-                virtualData.value = Array.from({ length: totalRecords.value })
-                initialData.forEach((item, index) => {
-                    virtualData.value[index] = item
-                })
-            } else {
-                virtualData.value = []
-            }
+            tableData.value = initialData
         }
     } catch (err) {
         console.error("Failed to load item data", err)
@@ -504,7 +496,8 @@ const onSort = (event) => {
     sortField.value = event.sortField
     sortOrder.value = event.sortOrder
     // Trigger reload
-    loadDataLazy({ first: first.value, last: first.value + rows.value })
+    first.value = 0
+    loadDataLazy({ first: 0, rows: rows.value })
 }
 
 const loadDataLazy = async (event) => {
@@ -534,12 +527,7 @@ const loadTableData = async (offset, limit) => {
             params
         })
 
-        const chunk = res.data.data || []
-        chunk.forEach((item, index) => {
-            if (offset + index < virtualData.value.length) {
-                 virtualData.value[offset + index] = item
-            }
-        })
+        tableData.value = res.data.data || []
     } catch (err) {
         error.value = err.response?.data?.error || "Failed to load data"
     } finally {
@@ -579,7 +567,7 @@ const openExecuteDialog = () => {
 }
 
 const onProcedureExecuted = (result) => {
-    virtualData.value = result.data || []
+    tableData.value = result.data || []
     columns.value = result.columns || []
     procViewMode.value = 'results'
 }
