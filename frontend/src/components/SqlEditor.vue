@@ -114,7 +114,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, shallowRef } from 'vue'
+import { ref, onMounted, onBeforeUnmount, shallowRef, watch } from 'vue'
 import Button from 'primevue/button'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
@@ -123,12 +123,18 @@ import { useToast } from 'primevue/usetoast'
 import axios from 'axios'
 import { VueMonacoEditor } from '@guolao/vue-monaco-editor'
 
-const props = defineProps(['api'])
+const props = defineProps(['api', 'initialCode'])
 const toast = useToast()
 
-const code = ref('SELECT * FROM EMPLOYEE')
+const code = ref(props.initialCode || 'SELECT * FROM EMPLOYEE')
 const editorRef = shallowRef(null)
 const monacoRef = shallowRef(null)
+
+watch(() => props.initialCode, (newVal) => {
+    if (newVal) {
+        code.value = newVal
+    }
+})
 
 const loading = ref(false)
 const loadingHints = ref(false)

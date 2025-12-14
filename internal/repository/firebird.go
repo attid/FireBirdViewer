@@ -389,7 +389,8 @@ func (r *FirebirdRepository) GetTableDDL(params domain.ConnectionParams, tableNa
 	var lines []string
 	for rows.Next() {
 		var name string
-		var fType, fLen, fPrec, fScale int
+		var fType int
+		var fLen, fPrec, fScale sql.NullInt32
 		var nullFlag sql.NullInt16
 
 		if err := rows.Scan(&name, &fType, &fLen, &fPrec, &fScale, &nullFlag); err != nil {
@@ -398,6 +399,19 @@ func (r *FirebirdRepository) GetTableDDL(params domain.ConnectionParams, tableNa
 
 		name = strings.TrimSpace(name)
 		typeStr := "UNKNOWN"
+
+		lenVal := 0
+		if fLen.Valid {
+			lenVal = int(fLen.Int32)
+		}
+		precVal := 0
+		if fPrec.Valid {
+			precVal = int(fPrec.Int32)
+		}
+		scaleVal := 0
+		if fScale.Valid {
+			scaleVal = int(fScale.Int32)
+		}
 
 		// Basic Type Mapping (Approximate)
 		switch fType {
@@ -412,10 +426,10 @@ func (r *FirebirdRepository) GetTableDDL(params domain.ConnectionParams, tableNa
 		case 13:
 			typeStr = "TIME"
 		case 14:
-			typeStr = fmt.Sprintf("CHAR(%d)", fLen)
+			typeStr = fmt.Sprintf("CHAR(%d)", lenVal)
 		case 16:
-			if fScale < 0 {
-				typeStr = fmt.Sprintf("DECIMAL(%d, %d)", fPrec, -fScale)
+			if scaleVal < 0 {
+				typeStr = fmt.Sprintf("DECIMAL(%d, %d)", precVal, -scaleVal)
 			} else {
 				typeStr = "BIGINT"
 			}
@@ -424,7 +438,7 @@ func (r *FirebirdRepository) GetTableDDL(params domain.ConnectionParams, tableNa
 		case 35:
 			typeStr = "TIMESTAMP"
 		case 37:
-			typeStr = fmt.Sprintf("VARCHAR(%d)", fLen)
+			typeStr = fmt.Sprintf("VARCHAR(%d)", lenVal)
 		case 261:
 			typeStr = "BLOB"
 		default:
