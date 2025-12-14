@@ -189,6 +189,7 @@ const procedureSource = ref('')
 
 // Data State
 const data = ref([])
+const virtualData = ref([])
 const totalRecords = ref(0)
 const loadingData = ref(false)
 const columns = ref([]) // Array of {name, type}
@@ -244,21 +245,6 @@ const filteredTreeNodes = computed(() => {
         }
 
         if (labelMatches || matchingChildren.length > 0) {
-            // If match, we want to expand it if it has children that matched?
-            // PrimeVue Tree with filter automatically handles display usually,
-            // but since we are filtering the value manually, we control expansion.
-            // But expandedKeys is what controls expansion.
-            // If we filter, we might want to expand all matching parents.
-            // But we are not updating expandedKeys here.
-            // We can return 'expanded' property in node, but we are using v-model:expandedKeys.
-            // Does 'expanded' property in node override expandedKeys?
-            // Usually expandedKeys takes precedence.
-            // So if we want auto-expand on filter, we should update expandedKeys.
-            // But side-effect in computed is bad.
-            // We'll rely on user expanding or standard behavior.
-            // Actually, if we use manual filtering, we can just return nodes.
-            // If user searches, they usually expect result to be visible.
-
             return {
                 ...node,
                 children: matchingChildren
@@ -273,11 +259,7 @@ const filteredTreeNodes = computed(() => {
 // Watch filter text to auto-expand
 watch(filterText, (newVal) => {
     if (newVal) {
-        // Expand all nodes that have children in the filtered view?
-        // Simple approach: expand all groups
         const newKeys = { ...expandedKeys.value }
-        // We can traverse rawTreeNodes and see what matches?
-        // Or just expand the main groups: tools, tables, views, procedures
         newKeys['tools'] = true
         newKeys['tables'] = true
         newKeys['views'] = true
@@ -441,34 +423,57 @@ const loadItemData = async (itemName) => {
                 virtualData.value = []
             }
         }
-    } else {
-        await loadTableData()
+    } catch (err) {
+        console.error("Failed to load item data", err)
+        error.value = err.response?.data?.error || "Failed to load data"
+    } finally {
+        loadingData.value = false
     }
 }
 
+const onPage = (event) => {
+    first.value = event.first
+    rows.value = event.rows
+    loadDataLazy(event)
+}
+
+const onSort = (event) => {
+    sortField.value = event.sortField
+    sortOrder.value = event.sortOrder
+    // Trigger reload
+    loadDataLazy({ first: first.value, last: first.value + rows.value })
+}
 
 const loadDataLazy = async (event) => {
     if (!selectedItemName.value || activeSection.value === 'procedures' || activeSection.value === 'tool') return;
 
-    const { first, last } = event
-    const limit = last - first
-    const offset = first
+    const { first: offset, last } = event
+    const limit = last - offset
 
     if (limit <= 0) return
 
-const loadTableData = async () => {
+    await loadTableData(offset, limit)
+}
+
+const loadTableData = async (offset, limit) => {
     loadingData.value = true
     error.value = ''
 
     try {
+        const params = { limit, offset }
+        if (sortField.value) {
+            params.sortField = sortField.value
+            params.sortOrder = sortOrder.value
+        }
+
         const res = await api.get(`/api/table/${selectedItemName.value}/data`, {
-            params: { limit, offset }
+            params
         })
 
         const chunk = res.data.data || []
         chunk.forEach((item, index) => {
-            if (first + index < virtualData.value.length) {
-                 virtualData.value[first + index] = item
+            if (offset + index < virtualData.value.length) {
+                 virtualData.value[offset + index] = item
             }
         })
     } catch (err) {
