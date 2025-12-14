@@ -56,3 +56,11 @@ func (s *Service) GetProcedureParameters(params domain.ConnectionParams, procNam
 func (s *Service) ExecuteProcedure(params domain.ConnectionParams, procName string, inputParams map[string]interface{}) ([]map[string]interface{}, []domain.Column, error) {
 	return s.repo.ExecuteProcedure(params, procName, inputParams)
 }
+
+func (s *Service) ExecuteQuery(params domain.ConnectionParams, query string) ([]map[string]interface{}, []domain.Column, error) {
+	return s.repo.ExecuteQuery(params, query)
+}
+
+func (s *Service) GetAllMetadata(params domain.ConnectionParams) ([]domain.TableMetadata, error) {
+	return s.repo.GetAllMetadata(params)
+}

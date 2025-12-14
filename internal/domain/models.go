@@ -24,3 +24,10 @@ type ProcedureParameter struct {
 	Name string `json:"name"`
 	Type string `json:"type"` // Simplified type name
 }
+
+// TableMetadata contains full metadata for autocompletion
+type TableMetadata struct {
+	Name    string   `json:"name"`
+	Type    string   `json:"type"` // "TABLE", "VIEW", "PROCEDURE"
+	Columns []string `json:"columns"`
+}

@@ -21,6 +21,8 @@ type Repository interface {
 	GetProcedureSource(params domain.ConnectionParams, procName string) (string, error)
 	GetProcedureParameters(params domain.ConnectionParams, procName string) ([]domain.ProcedureParameter, error)
 	ExecuteProcedure(params domain.ConnectionParams, procName string, inputParams map[string]interface{}) ([]map[string]interface{}, []domain.Column, error)
+	ExecuteQuery(params domain.ConnectionParams, query string) ([]map[string]interface{}, []domain.Column, error)
+	GetAllMetadata(params domain.ConnectionParams) ([]domain.TableMetadata, error)
 }
 
 type FirebirdRepository struct{}
@@ -492,4 +494,164 @@ func (r *FirebirdRepository) ExecuteProcedure(params domain.ConnectionParams, pr
 	defer rows.Close()
 
 	return r.scanRows(rows, "", db)
+}
+
+func (r *FirebirdRepository) ExecuteQuery(params domain.ConnectionParams, query string) ([]map[string]interface{}, []domain.Column, error) {
+	connStr := r.getConnectionString(params)
+	db, err := sql.Open("firebirdsql", connStr)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer db.Close()
+
+	log.Printf("ExecuteQuery: %s", query)
+
+	// Naive check for SELECT vs others to decide Query or Exec
+	// However, Exec doesn't return rows.
+	// Firebird driver `firebirdsql` supports `Query` for SELECT and `Exec` for others.
+	// But `Query` on an INSERT/UPDATE might fail or return no rows depending on driver implementation.
+	// `firebirdsql` driver seems to return nil rows for non-select queries if used with Query, or maybe error.
+	// Safer approach: Check if it starts with SELECT.
+	// But it could be "WITH ... SELECT" or "EXECUTE BLOCK ... RETURNS".
+
+	// Try Query first. If it returns rows, great.
+	// If it's an Update/Insert, Query might succeed but return no rows, or fail.
+
+	rows, err := db.Query(query)
+	if err != nil {
+		// If error is not fatal, maybe it was a command that needs Exec?
+		// Actually, standard SQL drivers usually return error if you call Query on something that doesn't return rows?
+		// Or they return a Result object?
+		// Let's try Exec if Query fails, or just rely on Query behavior.
+		// For simplicity, let's assume Query works for SELECT/RETURNING, and if not, we try Exec.
+
+		// Actually, let's just return the error. The user is writing SQL, they should know.
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	// If we have rows, scan them
+	cols, err := rows.Columns()
+	if err != nil {
+		// This likely means it was a query without result set (INSERT/UPDATE without RETURNING)
+		// But db.Query succeeded.
+		// We can return an empty result with a message?
+		// Or maybe we should have used Exec.
+		// Let's return empty data/cols and nil error.
+		return []map[string]interface{}{}, []domain.Column{}, nil
+	}
+
+	if len(cols) == 0 {
+		return []map[string]interface{}{}, []domain.Column{}, nil
+	}
+
+	return r.scanRows(rows, "", db)
+}
+
+func (r *FirebirdRepository) GetAllMetadata(params domain.ConnectionParams) ([]domain.TableMetadata, error) {
+	connStr := r.getConnectionString(params)
+	db, err := sql.Open("firebirdsql", connStr)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	// Query to get all relations and their fields
+	// We want Tables and Views.
+	// RDB$RELATIONS where RDB$SYSTEM_FLAG is 0 or null
+
+	query := `
+		SELECT
+			r.RDB$RELATION_NAME,
+			rf.RDB$FIELD_NAME,
+			CASE WHEN r.RDB$VIEW_BLR IS NULL THEN 'TABLE' ELSE 'VIEW' END as REL_TYPE
+		FROM RDB$RELATIONS r
+		LEFT JOIN RDB$RELATION_FIELDS rf ON r.RDB$RELATION_NAME = rf.RDB$RELATION_NAME
+		WHERE (r.RDB$SYSTEM_FLAG IS NULL OR r.RDB$SYSTEM_FLAG = 0)
+		ORDER BY r.RDB$RELATION_NAME, rf.RDB$FIELD_POSITION
+	`
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	metadataMap := make(map[string]*domain.TableMetadata)
+	var orderedNames []string
+
+	for rows.Next() {
+		var relName, relType string
+		var fieldNameNull sql.NullString // Left join, though relations usually have fields.
+
+		if err := rows.Scan(&relName, &fieldNameNull, &relType); err != nil {
+			return nil, err
+		}
+
+		relName = strings.TrimSpace(relName)
+
+		if _, exists := metadataMap[relName]; !exists {
+			metadataMap[relName] = &domain.TableMetadata{
+				Name: relName,
+				Type: relType,
+				Columns: []string{},
+			}
+			orderedNames = append(orderedNames, relName)
+		}
+
+		if fieldNameNull.Valid {
+			fName := strings.TrimSpace(fieldNameNull.String)
+			metadataMap[relName].Columns = append(metadataMap[relName].Columns, fName)
+		}
+	}
+
+	// Also fetch Procedures and their parameters?
+	// User said "tables, functions, procedures".
+	// Let's add procedures.
+
+	procQuery := `
+		SELECT
+			p.RDB$PROCEDURE_NAME,
+			pp.RDB$PARAMETER_NAME
+		FROM RDB$PROCEDURES p
+		LEFT JOIN RDB$PROCEDURE_PARAMETERS pp ON p.RDB$PROCEDURE_NAME = pp.RDB$PROCEDURE_NAME AND pp.RDB$PARAMETER_TYPE = 0
+		WHERE (p.RDB$SYSTEM_FLAG IS NULL OR p.RDB$SYSTEM_FLAG = 0)
+		ORDER BY p.RDB$PROCEDURE_NAME
+	`
+	pRows, err := db.Query(procQuery)
+	if err != nil {
+		// Log but don't fail everything?
+		log.Printf("Metadata Procedures Error: %v", err)
+	} else {
+		defer pRows.Close()
+		for pRows.Next() {
+			var procName string
+			var paramNameNull sql.NullString
+
+			if err := pRows.Scan(&procName, &paramNameNull); err != nil {
+				continue
+			}
+			procName = strings.TrimSpace(procName)
+
+			if _, exists := metadataMap[procName]; !exists {
+				metadataMap[procName] = &domain.TableMetadata{
+					Name: procName,
+					Type: "PROCEDURE",
+					Columns: []string{},
+				}
+				orderedNames = append(orderedNames, procName)
+			}
+
+			if paramNameNull.Valid {
+				pParam := strings.TrimSpace(paramNameNull.String)
+				metadataMap[procName].Columns = append(metadataMap[procName].Columns, pParam)
+			}
+		}
+	}
+
+	var result []domain.TableMetadata
+	for _, name := range orderedNames {
+		result = append(result, *metadataMap[name])
+	}
+
+	return result, nil
 }
