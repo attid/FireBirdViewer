@@ -46,6 +46,9 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	api.POST("/procedure/:name/execute", h.executeProcedure)
 	api.GET("/table/:name/data", h.getTableData)
 	api.PUT("/table/:name/data", h.updateTableData)
+	api.POST("/table/:name/data", h.insertTableData)
+	api.DELETE("/table/:name/data", h.deleteTableData)
+	api.GET("/table/:name/ddl", h.getTableDDL)
 
 	// New Endpoints
 	api.POST("/execute", h.executeQuery)
@@ -276,6 +279,50 @@ func (h *Handler) updateTableData(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "success"})
+}
+
+func (h *Handler) insertTableData(c echo.Context) error {
+	params := c.Get("connParams").(domain.ConnectionParams)
+	tableName := c.Param("name")
+
+	var req map[string]interface{}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	}
+
+	if err := h.svc.InsertData(params, tableName, req); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "success"})
+}
+
+func (h *Handler) deleteTableData(c echo.Context) error {
+	params := c.Get("connParams").(domain.ConnectionParams)
+	tableName := c.Param("name")
+	dbKey := c.QueryParam("db_key")
+
+	if dbKey == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing db_key query param"})
+	}
+
+	if err := h.svc.DeleteData(params, tableName, dbKey); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "success"})
+}
+
+func (h *Handler) getTableDDL(c echo.Context) error {
+	params := c.Get("connParams").(domain.ConnectionParams)
+	tableName := c.Param("name")
+
+	ddl, err := h.svc.GetTableDDL(params, tableName)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"ddl": ddl})
 }
 
 type ExecuteRequest struct {

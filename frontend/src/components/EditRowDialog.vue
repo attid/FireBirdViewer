@@ -2,7 +2,7 @@
   <Dialog
     :visible="visible"
     modal
-    header="Edit Record"
+    :header="mode === 'create' ? 'New Record' : 'Edit Record'"
     :style="{ width: '50vw' }"
     @update:visible="val => $emit('update:visible', val)"
   >
@@ -19,7 +19,7 @@
         <!-- Boolean/Checkbox (Future improvement, currently using text/dropdown if type known) -->
 
         <!-- Read-Only Handling -->
-        <div v-else-if="col.read_only" class="p-2 bg-gray-100 dark:bg-gray-800 rounded border border-gray-300 dark:border-gray-700 text-gray-500 font-mono text-sm">
+        <div v-else-if="col.read_only && mode !== 'create'" class="p-2 bg-gray-100 dark:bg-gray-800 rounded border border-gray-300 dark:border-gray-700 text-gray-500 font-mono text-sm">
            {{ localData[col.name] }}
            <span class="ml-2 text-xs text-gray-400 italic">(Read Only)</span>
         </div>
@@ -47,8 +47,15 @@
     </div>
 
     <template #footer>
-      <Button label="Cancel" icon="pi pi-times" text @click="$emit('update:visible', false)" />
-      <Button label="Save" icon="pi pi-check" @click="save" :loading="saving" />
+        <div class="flex justify-between w-full">
+            <div>
+                 <Button v-if="mode === 'edit'" label="Delete" icon="pi pi-trash" severity="danger" text @click="confirmDelete" :loading="deleting" />
+            </div>
+            <div class="flex gap-2">
+                <Button label="Cancel" icon="pi pi-times" text @click="$emit('update:visible', false)" />
+                <Button :label="mode === 'create' ? 'Create' : 'Save'" icon="pi pi-check" @click="save" :loading="saving" />
+            </div>
+        </div>
     </template>
   </Dialog>
 </template>
@@ -59,36 +66,48 @@ import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import DatePicker from 'primevue/datepicker'
+import { useConfirm } from "primevue/useconfirm";
 
 const props = defineProps({
   visible: Boolean,
   rowData: Object,
-  columns: Array // [{name: 'ID', type: 'INTEGER'}, ...]
+  columns: Array, // [{name: 'ID', type: 'INTEGER'}, ...]
+  mode: {
+      type: String,
+      default: 'edit' // 'edit' or 'create'
+  }
 })
 
-const emit = defineEmits(['update:visible', 'save'])
+const emit = defineEmits(['update:visible', 'save', 'delete'])
+const confirm = useConfirm();
 
 const localData = ref({})
 const saving = ref(false)
+const deleting = ref(false)
 
-watch(() => props.rowData, (newVal) => {
+watch(() => props.visible, (newVal) => {
   if (newVal) {
-    // Deep copy to avoid mutating parent state directly
-    const copy = JSON.parse(JSON.stringify(newVal))
+    if (props.mode === 'create') {
+        localData.value = {}
+    } else if (props.rowData) {
+        // Deep copy to avoid mutating parent state directly
+        const copy = JSON.parse(JSON.stringify(props.rowData))
 
-    // Parse Date Strings back to Date Objects for PrimeVue DatePicker
-    props.columns.forEach(col => {
-       if (isDate(col) && copy[col.name]) {
-           copy[col.name] = new Date(copy[col.name])
-       }
-    })
+        // Parse Date Strings back to Date Objects for PrimeVue DatePicker
+        props.columns.forEach(col => {
+           if (isDate(col) && copy[col.name]) {
+               copy[col.name] = new Date(copy[col.name])
+           }
+        })
 
-    localData.value = copy
+        localData.value = copy
+    }
   }
-}, { immediate: true })
+})
 
 const isHidden = (col) => {
-  return col.name === 'DB_KEY' || col.name === 'RDB$DB_KEY'
+  if (col.name === 'DB_KEY' || col.name === 'RDB$DB_KEY') return true
+  return false
 }
 
 const isBlob = (col) => {
@@ -142,41 +161,58 @@ const save = () => {
 
   const changes = {}
 
-  for (const key in localData.value) {
-    let newVal = localData.value[key]
-    let oldVal = props.rowData[key]
+  if (props.mode === 'create') {
+      // In create mode, send everything that is set
+      for (const key in localData.value) {
+          const val = localData.value[key]
+          if (val === null || val === undefined || val === '') continue
 
-    // Find column def to check type
-    const col = props.columns.find(c => c.name === key)
-    if (col && isDate(col)) {
-        // Handle Date Comparison
-        let oldDate = oldVal ? new Date(oldVal) : null
-        let newDate = newVal
+           // Find column def to check type
+          const col = props.columns.find(c => c.name === key)
+          if (col && isDate(col) && val instanceof Date) {
+              changes[key] = formatDateForSQL(val, isTimestamp(col))
+          } else {
+              changes[key] = val
+          }
+      }
+  } else {
+      // Edit Mode
+      for (const key in localData.value) {
+        let newVal = localData.value[key]
+        let oldVal = props.rowData[key]
 
-        // Simple equality check on time value
-        if (oldDate && newDate && oldDate.getTime() === newDate.getTime()) {
-            continue;
+        // Find column def to check type
+        const col = props.columns.find(c => c.name === key)
+        if (col && isDate(col)) {
+            // Handle Date Comparison
+            let oldDate = oldVal ? new Date(oldVal) : null
+            let newDate = newVal
+
+            // Simple equality check on time value
+            if (oldDate && newDate && oldDate.getTime() === newDate.getTime()) {
+                continue;
+            }
+
+            // Handle case where one is null and other is not
+            if (!oldDate && !newDate) continue;
+
+            // If changed, format it for SQL
+            if (newDate instanceof Date) {
+                changes[key] = formatDateForSQL(newDate, isTimestamp(col))
+            } else {
+                changes[key] = newVal // Should be null or something
+            }
+            continue
         }
 
-        // Handle case where one is null and other is not
-        if (!oldDate && !newDate) continue;
-
-        // If changed, format it for SQL
-        if (newDate instanceof Date) {
-            changes[key] = formatDateForSQL(newDate, isTimestamp(col))
-        } else {
-            changes[key] = newVal // Should be null or something
+        if (newVal !== oldVal) {
+          changes[key] = newVal
         }
-        continue
-    }
-
-    if (newVal !== oldVal) {
-      changes[key] = newVal
-    }
+      }
   }
 
   // If no changes, maybe just close? Or warn?
-  if (Object.keys(changes).length === 0) {
+  if (Object.keys(changes).length === 0 && props.mode !== 'create') {
       // No changes
       saving.value = false
       emit('update:visible', false) // Just close
@@ -185,5 +221,20 @@ const save = () => {
 
   emit('save', changes)
   saving.value = false
+}
+
+const confirmDelete = (event) => {
+    confirm.require({
+        target: event.currentTarget,
+        message: 'Are you sure you want to delete this record?',
+        icon: 'pi pi-exclamation-triangle',
+        accept: () => {
+            deleting.value = true
+            emit('delete', props.rowData)
+        },
+        reject: () => {
+            // do nothing
+        }
+    });
 }
 </script>

@@ -118,61 +118,87 @@
                     </div>
                 </div>
 
-                <!-- DataTable Container (Tables & Views) -->
-                <div v-else class="flex-1 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-                    <DataTable
-                        :key="selectedItemName"
-                        :value="virtualData"
-                        scrollable
-                        scrollHeight="flex"
-                        class="p-datatable-sm text-sm"
-                        stripedRows
-                        showGridlines
-                        lazy
-                        paginator
-                        :rows="rows"
-                        :rowsPerPageOptions="[25, 50, 100]"
-                        :first="first"
-                        :totalRecords="totalRecords"
-                        :loading="loadingData"
-                        @page="onPage"
-                        @sort="onSort"
-                        removableSort
-                    >
-                        <!-- Actions Column (Only for Tables) -->
-                        <Column v-if="activeSection === 'tables'" header="Actions" style="width: 50px; text-align: center">
-                           <template #body="{ data }">
-                               <Button
-                                  v-if="data"
-                                  icon="pi pi-pencil"
-                                  text
-                                  rounded
-                                  size="small"
-                                  @click="openEditDialog(data)"
-                                  class="text-gray-400 hover:text-primary-600"
-                               />
-                           </template>
-                        </Column>
+                <!-- Table View Container -->
+                <div v-else class="flex-1 flex flex-col h-full overflow-hidden bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+                    <!-- Toolbar for Tables -->
+                    <div v-if="activeSection === 'tables'" class="flex items-center justify-between p-2 border-b border-gray-200 dark:border-gray-700">
+                        <SelectButton v-model="activeTableTab" :options="tableTabs" class="p-button-sm" />
+                        <Button
+                            v-if="activeTableTab === 'Data'"
+                            label="New Record"
+                            icon="pi pi-plus"
+                            size="small"
+                            severity="primary"
+                            @click="openCreateDialog"
+                        />
+                    </div>
 
-                        <Column
-                            v-for="col in displayColumns"
-                            :key="col.name"
-                            :field="col.name"
-                            :header="col.name"
-                            style="min-width: 150px"
-                            :sortable="col.type !== 'BLOB'"
+                    <!-- Table: Data Tab (and Views) -->
+                    <div v-if="(activeSection === 'tables' && activeTableTab === 'Data') || activeSection === 'views'" class="flex-1 overflow-hidden">
+                        <DataTable
+                            :key="selectedItemName"
+                            :value="virtualData"
+                            scrollable
+                            scrollHeight="flex"
+                            class="p-datatable-sm text-sm"
+                            stripedRows
+                            showGridlines
+                            lazy
+                            paginator
+                            :rows="rows"
+                            :rowsPerPageOptions="[25, 50, 100]"
+                            :first="first"
+                            :totalRecords="totalRecords"
+                            :loading="loadingData"
+                            @page="onPage"
+                            @sort="onSort"
+                            removableSort
                         >
+                            <!-- Actions Column (Only for Tables) -->
+                            <Column v-if="activeSection === 'tables'" header="Actions" style="width: 50px; text-align: center">
                             <template #body="{ data }">
-                                <span v-if="data" class="truncate block" :title="data[col.name]">{{ data[col.name] }}</span>
-                                <span v-else class="flex items-center gap-2">
-                                    <i class="pi pi-spin pi-spinner text-xs text-gray-300"></i>
-                                </span>
+                                <Button
+                                    v-if="data"
+                                    icon="pi pi-pencil"
+                                    text
+                                    rounded
+                                    size="small"
+                                    @click="openEditDialog(data)"
+                                    class="text-gray-400 hover:text-primary-600"
+                                />
                             </template>
-                        </Column>
-                        <template #empty>
-                            <div class="p-4 text-center text-gray-500">No records found.</div>
-                        </template>
-                    </DataTable>
+                            </Column>
+
+                            <Column
+                                v-for="col in displayColumns"
+                                :key="col.name"
+                                :field="col.name"
+                                :header="col.name"
+                                style="min-width: 150px"
+                                :sortable="col.type !== 'BLOB'"
+                            >
+                                <template #body="{ data }">
+                                    <span v-if="data" class="truncate block" :title="data[col.name]">{{ data[col.name] }}</span>
+                                    <span v-else class="flex items-center gap-2">
+                                        <i class="pi pi-spin pi-spinner text-xs text-gray-300"></i>
+                                    </span>
+                                </template>
+                            </Column>
+                            <template #empty>
+                                <div class="p-4 text-center text-gray-500">No records found.</div>
+                            </template>
+                        </DataTable>
+                    </div>
+
+                    <!-- Table: DDL Tab -->
+                    <div v-else-if="activeSection === 'tables' && activeTableTab === 'DDL'" class="flex-1 flex flex-col overflow-hidden">
+                        <pre class="flex-1 overflow-auto p-4 bg-gray-50 dark:bg-gray-900 font-mono text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{{ tableDDL }}</pre>
+                    </div>
+
+                    <!-- Table: Query Tab -->
+                    <div v-else-if="activeSection === 'tables' && activeTableTab === 'Query'" class="flex-1 flex flex-col overflow-hidden">
+                         <SqlEditor :api="api" :initialCode="tableQuery" />
+                    </div>
                 </div>
             </div>
 
@@ -189,7 +215,9 @@
       v-model:visible="editDialogVisible"
       :rowData="editingRow"
       :columns="columns"
+      :mode="editMode"
       @save="saveRow"
+      @delete="deleteRow"
     />
 
     <!-- Execute Procedure Dialog -->
@@ -217,6 +245,7 @@ import Tree from 'primevue/tree'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
 import InputText from 'primevue/inputtext'
+import SelectButton from 'primevue/selectbutton'
 import { useToast } from 'primevue/usetoast'
 import EditRowDialog from '../components/EditRowDialog.vue'
 import ExecuteProcedureDialog from '../components/ExecuteProcedureDialog.vue'
@@ -241,6 +270,12 @@ const selectedItemName = ref(null) // Table name, View name, Proc name, or Tool 
 const procedureSource = ref('')
 const procViewMode = ref('source') // 'source' or 'results'
 
+// Table Tabs
+const activeTableTab = ref('Data')
+const tableTabs = ref(['Data', 'DDL', 'Query'])
+const tableDDL = ref('')
+const tableQuery = ref('')
+
 // Data State
 const data = ref([])
 const virtualData = ref([])
@@ -257,6 +292,7 @@ const sortOrder = ref(null) // 1 for asc, -1 for desc
 // Edit Dialog
 const editDialogVisible = ref(false)
 const editingRow = ref(null)
+const editMode = ref('edit') // 'edit' or 'create'
 
 // Execute Dialog
 const executeDialogVisible = ref(false)
@@ -445,6 +481,11 @@ const onNodeSelect = (node) => {
         activeSection.value = sectionMap[type]
         selectedItemName.value = name
 
+        // Defaults for table tabs
+        activeTableTab.value = 'Data'
+        tableDDL.value = ''
+        tableQuery.value = ''
+
         loadItemData(name)
     }
 }
@@ -493,6 +534,21 @@ const loadItemData = async (itemName) => {
         loadingData.value = false
     }
 }
+
+watch(activeTableTab, async (newVal) => {
+    if (activeSection.value === 'tables' && newVal === 'DDL' && !tableDDL.value) {
+        // Fetch DDL
+        try {
+            const res = await api.get(`/api/table/${selectedItemName.value}/ddl`)
+            tableDDL.value = res.data.ddl || 'No DDL available.'
+        } catch (err) {
+            console.error(err)
+            tableDDL.value = 'Failed to fetch DDL.'
+        }
+    } else if (activeSection.value === 'tables' && newVal === 'Query') {
+        tableQuery.value = `SELECT * FROM "${selectedItemName.value}"`
+    }
+})
 
 const onPage = (event) => {
     first.value = event.first
@@ -549,28 +605,65 @@ const loadTableData = async (offset, limit) => {
 
 const openEditDialog = (row) => {
     editingRow.value = row
+    editMode.value = 'edit'
+    editDialogVisible.value = true
+}
+
+const openCreateDialog = () => {
+    editingRow.value = {}
+    editMode.value = 'create'
     editDialogVisible.value = true
 }
 
 const saveRow = async (changes) => {
     try {
-        const dbKey = editingRow.value.DB_KEY || editingRow.value['RDB$DB_KEY']
+        if (editMode.value === 'create') {
+             await api.post(`/api/table/${selectedItemName.value}/data`, changes)
+             toast.add({ severity: 'success', summary: 'Success', detail: 'Record created', life: 3000 });
+             editDialogVisible.value = false
+             // Refresh data
+             loadItemData(selectedItemName.value)
+        } else {
+            const dbKey = editingRow.value.DB_KEY || editingRow.value['RDB$DB_KEY']
+            if (!dbKey) {
+                toast.add({ severity: 'error', summary: 'Error', detail: 'Missing DB_KEY for update', life: 3000 });
+                return
+            }
+
+            await api.put(`/api/table/${selectedItemName.value}/data`, {
+                db_key: dbKey,
+                data: changes
+            })
+
+            toast.add({ severity: 'success', summary: 'Success', detail: 'Record updated', life: 3000 });
+            editDialogVisible.value = false
+            Object.assign(editingRow.value, changes)
+        }
+    } catch (err) {
+        console.error(err)
+        toast.add({ severity: 'error', summary: 'Error', detail: err.response?.data?.error || 'Operation failed', life: 3000 });
+    }
+}
+
+const deleteRow = async (row) => {
+    try {
+        const dbKey = row.DB_KEY || row['RDB$DB_KEY']
         if (!dbKey) {
-            toast.add({ severity: 'error', summary: 'Error', detail: 'Missing DB_KEY for update', life: 3000 });
+            toast.add({ severity: 'error', summary: 'Error', detail: 'Missing DB_KEY for deletion', life: 3000 });
             return
         }
 
-        await api.put(`/api/table/${selectedItemName.value}/data`, {
-            db_key: dbKey,
-            data: changes
+        await api.delete(`/api/table/${selectedItemName.value}/data`, {
+            params: { db_key: dbKey }
         })
 
-        toast.add({ severity: 'success', summary: 'Success', detail: 'Record updated', life: 3000 });
+        toast.add({ severity: 'success', summary: 'Success', detail: 'Record deleted', life: 3000 });
         editDialogVisible.value = false
-        Object.assign(editingRow.value, changes)
+        // Refresh data
+        loadItemData(selectedItemName.value)
     } catch (err) {
-        console.error(err)
-        toast.add({ severity: 'error', summary: 'Error', detail: err.response?.data?.error || 'Update failed', life: 3000 });
+         console.error(err)
+         toast.add({ severity: 'error', summary: 'Error', detail: err.response?.data?.error || 'Deletion failed', life: 3000 });
     }
 }
 
