@@ -453,6 +453,11 @@ const loadItemData = async (itemName) => {
     procedureSource.value = ''
     procViewMode.value = 'source'
 
+    // Reset pagination and sort state
+    first.value = 0
+    sortField.value = null
+    sortOrder.value = null
+
     try {
         if (activeSection.value === 'procedures') {
             const res = await api.get(`/api/procedure/${itemName}/source`)
@@ -500,8 +505,9 @@ const onSort = (event) => {
 const loadDataLazy = async (event) => {
     if (!selectedItemName.value || activeSection.value === 'procedures' || activeSection.value === 'tool') return;
 
-    const { first: offset, last } = event
-    const limit = last - offset
+    const { first: offset } = event
+    // PrimeVue's page event often omits 'last', so we trust 'rows' which corresponds to the limit
+    const limit = event.rows || rows.value
 
     if (limit <= 0) return
 
