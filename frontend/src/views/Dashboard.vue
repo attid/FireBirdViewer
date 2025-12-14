@@ -54,7 +54,11 @@
         </header>
 
         <main class="flex-1 overflow-auto p-4 bg-gray-50 dark:bg-gray-900 relative">
-            <div v-if="activeSection === 'tool'" class="h-full flex flex-col justify-center items-center text-gray-400">
+            <div v-if="activeSection === 'tool' && selectedItemName === 'sql-editor'" class="h-full flex flex-col">
+                 <SqlEditor :api="api" />
+            </div>
+
+            <div v-else-if="activeSection === 'tool' && selectedItemName === 'db-info'" class="h-full flex flex-col justify-center items-center text-gray-400">
                  <i :class="['pi', headerIcon, 'text-6xl mb-4 opacity-50']"></i>
                  <h3 class="text-2xl font-light">{{ headerTitle }}</h3>
                  <p class="mt-2 opacity-70">This tool is coming soon.</p>
@@ -216,6 +220,7 @@ import InputText from 'primevue/inputtext'
 import { useToast } from 'primevue/usetoast'
 import EditRowDialog from '../components/EditRowDialog.vue'
 import ExecuteProcedureDialog from '../components/ExecuteProcedureDialog.vue'
+import SqlEditor from '../components/SqlEditor.vue'
 
 const router = useRouter()
 const toast = useToast()

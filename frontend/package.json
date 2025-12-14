@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@guolao/vue-monaco-editor": "^1.6.0",
     "@primevue/themes": "^4.5.2",
     "axios": "^1.13.2",
     "pinia": "^3.0.4",

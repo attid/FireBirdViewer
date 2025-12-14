@@ -46,6 +46,10 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 	api.POST("/procedure/:name/execute", h.executeProcedure)
 	api.GET("/table/:name/data", h.getTableData)
 	api.PUT("/table/:name/data", h.updateTableData)
+
+	// New Endpoints
+	api.POST("/execute", h.executeQuery)
+	api.GET("/metadata", h.getMetadata)
 }
 
 func (h *Handler) getConfig(c echo.Context) error {
@@ -272,4 +276,42 @@ func (h *Handler) updateTableData(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "success"})
+}
+
+type ExecuteRequest struct {
+	SQL string `json:"sql"`
+}
+
+func (h *Handler) executeQuery(c echo.Context) error {
+	params := c.Get("connParams").(domain.ConnectionParams)
+
+	var req ExecuteRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	}
+	if req.SQL == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing SQL statement"})
+	}
+
+	data, cols, err := h.svc.ExecuteQuery(params, req.SQL)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"data":    data,
+		"columns": cols,
+		"total":   len(data),
+	})
+}
+
+func (h *Handler) getMetadata(c echo.Context) error {
+	params := c.Get("connParams").(domain.ConnectionParams)
+
+	metadata, err := h.svc.GetAllMetadata(params)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, metadata)
 }
