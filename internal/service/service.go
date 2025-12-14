@@ -48,3 +48,11 @@ func (s *Service) ListProcedures(params domain.ConnectionParams) ([]domain.Table
 func (s *Service) GetProcedureSource(params domain.ConnectionParams, procName string) (string, error) {
 	return s.repo.GetProcedureSource(params, procName)
 }
+
+func (s *Service) GetProcedureParameters(params domain.ConnectionParams, procName string) ([]domain.ProcedureParameter, error) {
+	return s.repo.GetProcedureParameters(params, procName)
+}
+
+func (s *Service) ExecuteProcedure(params domain.ConnectionParams, procName string, inputParams map[string]interface{}) ([]map[string]interface{}, []domain.Column, error) {
+	return s.repo.ExecuteProcedure(params, procName, inputParams)
+}

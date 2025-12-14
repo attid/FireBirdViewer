@@ -68,12 +68,50 @@
                 <!-- Procedure View -->
                 <div v-else-if="activeSection === 'procedures'" class="flex-1 flex flex-col h-full overflow-hidden bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-4">
                     <div class="flex justify-end mb-4 gap-2">
-                        <Button label="Execute" icon="pi pi-play" severity="success" disabled title="Coming soon" />
+                         <Button
+                             v-if="procViewMode === 'results'"
+                             label="Back to Source"
+                             icon="pi pi-arrow-left"
+                             severity="secondary"
+                             @click="procViewMode = 'source'"
+                         />
+                        <Button label="Execute" icon="pi pi-play" severity="success" @click="openExecuteDialog" />
                     </div>
-                    <div v-if="loadingData" class="flex-1 flex justify-center items-center">
-                         <i class="pi pi-spin pi-spinner text-3xl text-primary-500"></i>
+
+                    <!-- Source View -->
+                    <div v-if="procViewMode === 'source'" class="flex-1 flex flex-col h-full overflow-hidden">
+                        <div v-if="loadingData" class="flex-1 flex justify-center items-center">
+                            <i class="pi pi-spin pi-spinner text-3xl text-primary-500"></i>
+                        </div>
+                        <pre v-else class="flex-1 overflow-auto p-4 bg-gray-50 dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700 font-mono text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{{ procedureSource }}</pre>
                     </div>
-                    <pre v-else class="flex-1 overflow-auto p-4 bg-gray-50 dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700 font-mono text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{{ procedureSource }}</pre>
+
+                    <!-- Results View -->
+                    <div v-else class="flex-1 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+                        <DataTable
+                            :value="virtualData"
+                            scrollable
+                            scrollHeight="flex"
+                            class="p-datatable-sm text-sm"
+                            stripedRows
+                            showGridlines
+                        >
+                             <Column
+                                v-for="col in displayColumns"
+                                :key="col.name"
+                                :field="col.name"
+                                :header="col.name"
+                                style="min-width: 150px"
+                            >
+                                <template #body="{ data }">
+                                    <span class="truncate block" :title="data[col.name]">{{ data[col.name] }}</span>
+                                </template>
+                            </Column>
+                             <template #empty>
+                                <div class="p-4 text-center text-gray-500">No records returned.</div>
+                            </template>
+                        </DataTable>
+                    </div>
                 </div>
 
                 <!-- DataTable Container (Tables & Views) -->
@@ -149,6 +187,15 @@
       :columns="columns"
       @save="saveRow"
     />
+
+    <!-- Execute Procedure Dialog -->
+    <ExecuteProcedureDialog
+      v-model:visible="executeDialogVisible"
+      :procedureName="selectedItemName"
+      :api="api"
+      @execute="onProcedureExecuted"
+    />
+
     <Toast />
   </div>
 </template>
@@ -168,6 +215,7 @@ import InputIcon from 'primevue/inputicon'
 import InputText from 'primevue/inputtext'
 import { useToast } from 'primevue/usetoast'
 import EditRowDialog from '../components/EditRowDialog.vue'
+import ExecuteProcedureDialog from '../components/ExecuteProcedureDialog.vue'
 
 const router = useRouter()
 const toast = useToast()
@@ -186,6 +234,7 @@ const expandedKeys = ref({})
 const activeSection = ref(null) // 'tables', 'views', 'procedures', 'tool'
 const selectedItemName = ref(null) // Table name, View name, Proc name, or Tool ID
 const procedureSource = ref('')
+const procViewMode = ref('source') // 'source' or 'results'
 
 // Data State
 const data = ref([])
@@ -203,6 +252,9 @@ const sortOrder = ref(null) // 1 for asc, -1 for desc
 // Edit Dialog
 const editDialogVisible = ref(false)
 const editingRow = ref(null)
+
+// Execute Dialog
+const executeDialogVisible = ref(false)
 
 // Headers
 const headerTitle = computed(() => {
@@ -399,6 +451,7 @@ const loadItemData = async (itemName) => {
     loadingData.value = true
     columns.value = []
     procedureSource.value = ''
+    procViewMode.value = 'source'
 
     try {
         if (activeSection.value === 'procedures') {
@@ -508,6 +561,16 @@ const saveRow = async (changes) => {
         console.error(err)
         toast.add({ severity: 'error', summary: 'Error', detail: err.response?.data?.error || 'Update failed', life: 3000 });
     }
+}
+
+const openExecuteDialog = () => {
+    executeDialogVisible.value = true
+}
+
+const onProcedureExecuted = (result) => {
+    virtualData.value = result.data || []
+    columns.value = result.columns || []
+    procViewMode.value = 'results'
 }
 
 onMounted(async () => {

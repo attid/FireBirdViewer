@@ -18,3 +18,9 @@ type Column struct {
 	Type     string `json:"type"`
 	ReadOnly bool   `json:"read_only"`
 }
+
+// ProcedureParameter represents a stored procedure input parameter.
+type ProcedureParameter struct {
+	Name string `json:"name"`
+	Type string `json:"type"` // Simplified type name
+}
