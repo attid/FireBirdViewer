@@ -40,10 +40,10 @@ jobs:
           docker push $REGISTRY/$IMAGE_NAME:latest
           docker push $REGISTRY/$IMAGE_NAME:$VERSION
 
-      #- name: Notify Telegram
-      #  run: |
-      #    curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
-      #      -H "Content-Type: application/json" \
-      #      -d '{"chat_id": "-1003339919065", "text": "Docker image pushed to registry /info_viewer_viewer_caddy"}'
-      #
-      #    
+      - name: Notify Telegram
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d '{"chat_id": "-1003579960813", "text": "Docker image pushed to registry /info_firebirdviewer_viewer_1"}'
+      
+          
