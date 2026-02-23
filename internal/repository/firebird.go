@@ -253,7 +253,6 @@ func (r *FirebirdRepository) scanRows(rows *sql.Rows, relationName string, db *s
 	return result, cols, nil
 }
 
-
 func (r *FirebirdRepository) GetTotalCount(params domain.ConnectionParams, tableName string) (int, error) {
 	connStr := r.getConnectionString(params)
 	db, err := sql.Open("firebirdsql", connStr)
@@ -442,7 +441,6 @@ func (r *FirebirdRepository) GetTableDDL(params domain.ConnectionParams, tableNa
 		}
 
 		name = strings.TrimSpace(name)
-		typeStr := "UNKNOWN"
 
 		lenVal := 0
 		if fLen.Valid {
@@ -457,37 +455,7 @@ func (r *FirebirdRepository) GetTableDDL(params domain.ConnectionParams, tableNa
 			scaleVal = int(fScale.Int32)
 		}
 
-		// Basic Type Mapping (Approximate)
-		switch fType {
-		case 7:
-			typeStr = "SMALLINT"
-		case 8:
-			typeStr = "INTEGER"
-		case 10:
-			typeStr = "FLOAT"
-		case 12:
-			typeStr = "DATE"
-		case 13:
-			typeStr = "TIME"
-		case 14:
-			typeStr = fmt.Sprintf("CHAR(%d)", lenVal)
-		case 16:
-			if scaleVal < 0 {
-				typeStr = fmt.Sprintf("DECIMAL(%d, %d)", precVal, -scaleVal)
-			} else {
-				typeStr = "BIGINT"
-			}
-		case 27:
-			typeStr = "DOUBLE PRECISION"
-		case 35:
-			typeStr = "TIMESTAMP"
-		case 37:
-			typeStr = fmt.Sprintf("VARCHAR(%d)", lenVal)
-		case 261:
-			typeStr = "BLOB"
-		default:
-			typeStr = fmt.Sprintf("TYPE_%d", fType)
-		}
+		typeStr := r.mapFirebirdTypeToSQL(fType, lenVal, precVal, scaleVal)
 
 		line := fmt.Sprintf("    %s %s", r.quoteIdentifier(name), typeStr)
 		if nullFlag.Valid && nullFlag.Int16 == 1 {
@@ -525,6 +493,39 @@ func (r *FirebirdRepository) GetTableDDL(params domain.ConnectionParams, tableNa
 	sb.WriteString("\n);")
 
 	return sb.String(), nil
+}
+
+func (r *FirebirdRepository) mapFirebirdTypeToSQL(fType, lenVal, precVal, scaleVal int) string {
+	switch fType {
+	case 7:
+		return "SMALLINT"
+	case 8:
+		return "INTEGER"
+	case 10:
+		return "FLOAT"
+	case 12:
+		return "DATE"
+	case 13:
+		return "TIME"
+	case 14:
+		return fmt.Sprintf("CHAR(%d)", lenVal)
+	case 16:
+		if scaleVal < 0 {
+			return fmt.Sprintf("DECIMAL(%d, %d)", precVal, -scaleVal)
+		} else {
+			return "BIGINT"
+		}
+	case 27:
+		return "DOUBLE PRECISION"
+	case 35:
+		return "TIMESTAMP"
+	case 37:
+		return fmt.Sprintf("VARCHAR(%d)", lenVal)
+	case 261:
+		return "BLOB"
+	default:
+		return fmt.Sprintf("TYPE_%d", fType)
+	}
 }
 
 func (r *FirebirdRepository) ListViews(params domain.ConnectionParams) ([]domain.Table, error) {
@@ -824,8 +825,8 @@ func (r *FirebirdRepository) GetAllMetadata(params domain.ConnectionParams) ([]d
 
 		if _, exists := metadataMap[relName]; !exists {
 			metadataMap[relName] = &domain.TableMetadata{
-				Name: relName,
-				Type: relType,
+				Name:    relName,
+				Type:    relType,
 				Columns: []string{},
 			}
 			orderedNames = append(orderedNames, relName)
@@ -867,8 +868,8 @@ func (r *FirebirdRepository) GetAllMetadata(params domain.ConnectionParams) ([]d
 
 			if _, exists := metadataMap[procName]; !exists {
 				metadataMap[procName] = &domain.TableMetadata{
-					Name: procName,
-					Type: "PROCEDURE",
+					Name:    procName,
+					Type:    "PROCEDURE",
 					Columns: []string{},
 				}
 				orderedNames = append(orderedNames, procName)
