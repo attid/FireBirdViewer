@@ -110,25 +110,42 @@ func (r *FirebirdRepository) GetData(params domain.ConnectionParams, tableName s
 	// Sorting
 	orderByClause := ""
 	if sortField != "" {
-		// Sanitize/Quote sortField. Firebird identifiers in double quotes are case sensitive and allow spaces.
-		// We trust the input to be a valid column name or minimal sanity check.
-		// Simple anti-SQL injection: ensure it doesn't contain quotes or semicolons, or just quote it.
-		// Quoting is safest for valid identifiers.
-		// NOTE: sortField should be sanitized more rigorously in a real app or checked against columns.
-		// For now we assume typical column names.
-		safeField := strings.ReplaceAll(sortField, "\"", "") // remove quotes if any
-		safeField = "\"" + safeField + "\""
+		// Rigorous validation: check if column exists in the table
+		columns, err := r.getTableColumns(db, tableName)
+		if err != nil {
+			log.Printf("GetData validation error: %v", err)
+			// Proceed without sorting if validation fails
+			sortField = ""
+		} else {
+			isValid := false
+			if strings.EqualFold(sortField, "RDB$DB_KEY") || strings.EqualFold(sortField, "DB_KEY") {
+				isValid = true
+				sortField = "RDB$DB_KEY"
+			} else {
+				for _, col := range columns {
+					if strings.EqualFold(sortField, col) {
+						isValid = true
+						sortField = col // Use the exact name from DB
+						break
+					}
+				}
+			}
 
-		order := "ASC"
-		if strings.ToUpper(sortOrder) == "DESC" || sortOrder == "-1" {
-			order = "DESC"
+			if !isValid {
+				log.Printf("Warning: Invalid sort field '%s' for table '%s'", sortField, tableName)
+				sortField = ""
+			} else {
+				order := "ASC"
+				if strings.ToUpper(sortOrder) == "DESC" || sortOrder == "-1" {
+					order = "DESC"
+				}
+				orderByClause = fmt.Sprintf("ORDER BY %s %s", r.quoteIdentifier(sortField), order)
+			}
 		}
-
-		orderByClause = fmt.Sprintf("ORDER BY %s %s", safeField, order)
 	}
 
 	// For Firebird: SELECT FIRST N SKIP M ... ORDER BY ...
-	query := fmt.Sprintf("SELECT FIRST %d SKIP %d t.RDB$DB_KEY, t.* FROM \"%s\" t %s", limit, offset, tableName, orderByClause)
+	query := fmt.Sprintf("SELECT FIRST %d SKIP %d t.RDB$DB_KEY, t.* FROM %s t %s", limit, offset, r.quoteIdentifier(tableName), orderByClause)
 	log.Printf("GetData Query: %s", query)
 
 	rows, err := db.Query(query)
@@ -245,7 +262,7 @@ func (r *FirebirdRepository) GetTotalCount(params domain.ConnectionParams, table
 	}
 	defer db.Close()
 
-	query := fmt.Sprintf("SELECT COUNT(*) FROM \"%s\"", tableName)
+	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", r.quoteIdentifier(tableName))
 	log.Printf("GetTotalCount Query: %s", query)
 	var count int
 	if err := db.QueryRow(query).Scan(&count); err != nil {
@@ -271,7 +288,7 @@ func (r *FirebirdRepository) UpdateData(params domain.ConnectionParams, tableNam
 		if col == "RDB$DB_KEY" || col == "DB_KEY" {
 			continue
 		}
-		setClauses = append(setClauses, fmt.Sprintf("\"%s\" = ?", col))
+		setClauses = append(setClauses, fmt.Sprintf("%s = ?", r.quoteIdentifier(col)))
 		args = append(args, val)
 	}
 
@@ -287,7 +304,7 @@ func (r *FirebirdRepository) UpdateData(params domain.ConnectionParams, tableNam
 	}
 	args = append(args, keyBytes)
 
-	query := fmt.Sprintf("UPDATE \"%s\" SET %s WHERE RDB$DB_KEY = ?", tableName, strings.Join(setClauses, ", "))
+	query := fmt.Sprintf("UPDATE %s SET %s WHERE RDB$DB_KEY = ?", r.quoteIdentifier(tableName), strings.Join(setClauses, ", "))
 	log.Printf("UpdateData Query: %s, Args: %v", query, args)
 
 	_, err = db.Exec(query, args...)
@@ -310,7 +327,7 @@ func (r *FirebirdRepository) InsertData(params domain.ConnectionParams, tableNam
 	args := []interface{}{}
 
 	for col, val := range data {
-		cols = append(cols, fmt.Sprintf("\"%s\"", col))
+		cols = append(cols, r.quoteIdentifier(col))
 		placeholders = append(placeholders, "?")
 		args = append(args, val)
 	}
@@ -319,7 +336,7 @@ func (r *FirebirdRepository) InsertData(params domain.ConnectionParams, tableNam
 		return fmt.Errorf("no data to insert")
 	}
 
-	query := fmt.Sprintf("INSERT INTO \"%s\" (%s) VALUES (%s)", tableName, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", r.quoteIdentifier(tableName), strings.Join(cols, ", "), strings.Join(placeholders, ", "))
 	log.Printf("InsertData Query: %s, Args: %v", query, args)
 
 	_, err = db.Exec(query, args...)
@@ -344,7 +361,7 @@ func (r *FirebirdRepository) DeleteData(params domain.ConnectionParams, tableNam
 		return fmt.Errorf("invalid db_key format")
 	}
 
-	query := fmt.Sprintf("DELETE FROM \"%s\" WHERE RDB$DB_KEY = ?", tableName)
+	query := fmt.Sprintf("DELETE FROM %s WHERE RDB$DB_KEY = ?", r.quoteIdentifier(tableName))
 	log.Printf("DeleteData Query: %s", query)
 
 	_, err = db.Exec(query, keyBytes)
@@ -352,6 +369,33 @@ func (r *FirebirdRepository) DeleteData(params domain.ConnectionParams, tableNam
 		log.Printf("DeleteData Error: %v", err)
 	}
 	return err
+}
+
+func (r *FirebirdRepository) getTableColumns(db *sql.DB, tableName string) ([]string, error) {
+	query := `
+		SELECT RDB$FIELD_NAME
+		FROM RDB$RELATION_FIELDS
+		WHERE RDB$RELATION_NAME = ?
+	`
+	rows, err := db.Query(query, tableName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var cols []string
+	for rows.Next() {
+		var col string
+		if err := rows.Scan(&col); err != nil {
+			return nil, err
+		}
+		cols = append(cols, strings.TrimSpace(col))
+	}
+	return cols, nil
+}
+
+func (r *FirebirdRepository) quoteIdentifier(name string) string {
+	return "\"" + strings.ReplaceAll(name, "\"", "\"\"") + "\""
 }
 
 func (r *FirebirdRepository) GetTableDDL(params domain.ConnectionParams, tableName string) (string, error) {
@@ -384,7 +428,7 @@ func (r *FirebirdRepository) GetTableDDL(params domain.ConnectionParams, tableNa
 	defer rows.Close()
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("CREATE TABLE \"%s\" (\n", strings.ToUpper(tableName)))
+	sb.WriteString(fmt.Sprintf("CREATE TABLE %s (\n", r.quoteIdentifier(tableName)))
 
 	var lines []string
 	for rows.Next() {
@@ -445,7 +489,7 @@ func (r *FirebirdRepository) GetTableDDL(params domain.ConnectionParams, tableNa
 			typeStr = fmt.Sprintf("TYPE_%d", fType)
 		}
 
-		line := fmt.Sprintf("    \"%s\" %s", name, typeStr)
+		line := fmt.Sprintf("    %s %s", r.quoteIdentifier(name), typeStr)
 		if nullFlag.Valid && nullFlag.Int16 == 1 {
 			line += " NOT NULL"
 		}
@@ -473,7 +517,8 @@ func (r *FirebirdRepository) GetTableDDL(params domain.ConnectionParams, tableNa
 			}
 		}
 		if len(pkCols) > 0 {
-			sb.WriteString(fmt.Sprintf(",\n    CONSTRAINT PK_%s PRIMARY KEY (%s)", strings.ToUpper(tableName), strings.Join(pkCols, ", ")))
+			pkName := "PK_" + tableName
+			sb.WriteString(fmt.Sprintf(",\n    CONSTRAINT %s PRIMARY KEY (%s)", r.quoteIdentifier(pkName), strings.Join(pkCols, ", ")))
 		}
 	}
 
@@ -667,9 +712,9 @@ func (r *FirebirdRepository) ExecuteProcedure(params domain.ConnectionParams, pr
 
 	var query string
 	if isSelectable {
-		query = fmt.Sprintf("SELECT * FROM \"%s\"(%s)", strings.ToUpper(procName), strings.Join(paramPlaceholders, ", "))
+		query = fmt.Sprintf("SELECT * FROM %s(%s)", r.quoteIdentifier(procName), strings.Join(paramPlaceholders, ", "))
 	} else {
-		query = fmt.Sprintf("EXECUTE PROCEDURE \"%s\"(%s)", strings.ToUpper(procName), strings.Join(paramPlaceholders, ", "))
+		query = fmt.Sprintf("EXECUTE PROCEDURE %s(%s)", r.quoteIdentifier(procName), strings.Join(paramPlaceholders, ", "))
 	}
 
 	log.Printf("ExecuteProcedure Query: %s, Args: %v", query, orderedParams)
