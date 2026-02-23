@@ -105,3 +105,39 @@ func TestQuoteIdentifier(t *testing.T) {
 		})
 	}
 }
+
+func TestMapFirebirdTypeToSQL(t *testing.T) {
+	repo := NewFirebirdRepository()
+
+	tests := []struct {
+		name     string
+		fType    int
+		lenVal   int
+		precVal  int
+		scaleVal int
+		expected string
+	}{
+		{"Smallint", 7, 0, 0, 0, "SMALLINT"},
+		{"Integer", 8, 0, 0, 0, "INTEGER"},
+		{"Float", 10, 0, 0, 0, "FLOAT"},
+		{"Date", 12, 0, 0, 0, "DATE"},
+		{"Time", 13, 0, 0, 0, "TIME"},
+		{"Char", 14, 10, 0, 0, "CHAR(10)"},
+		{"Decimal", 16, 0, 10, -2, "DECIMAL(10, 2)"},
+		{"Bigint", 16, 0, 0, 0, "BIGINT"},
+		{"Double", 27, 0, 0, 0, "DOUBLE PRECISION"},
+		{"Timestamp", 35, 0, 0, 0, "TIMESTAMP"},
+		{"Varchar", 37, 50, 0, 0, "VARCHAR(50)"},
+		{"Blob", 261, 0, 0, 0, "BLOB"},
+		{"Unknown", 999, 0, 0, 0, "TYPE_999"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := repo.mapFirebirdTypeToSQL(tt.fType, tt.lenVal, tt.precVal, tt.scaleVal)
+			if got != tt.expected {
+				t.Errorf("mapFirebirdTypeToSQL() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
