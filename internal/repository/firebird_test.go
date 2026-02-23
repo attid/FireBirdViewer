@@ -60,3 +60,48 @@ func TestGetConnectionString(t *testing.T) {
 		})
 	}
 }
+
+func TestQuoteIdentifier(t *testing.T) {
+	repo := NewFirebirdRepository()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "Simple identifier",
+			input:    "EMPLOYEE",
+			expected: "\"EMPLOYEE\"",
+		},
+		{
+			name:     "Identifier with spaces",
+			input:    "My Table",
+			expected: "\"My Table\"",
+		},
+		{
+			name:     "Identifier with double quotes",
+			input:    "Table\"Name",
+			expected: "\"Table\"\"Name\"",
+		},
+		{
+			name:     "Identifier with multiple double quotes",
+			input:    "\"Quoted\"",
+			expected: "\"\"\"Quoted\"\"\"",
+		},
+		{
+			name:     "Empty identifier",
+			input:    "",
+			expected: "\"\"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := repo.quoteIdentifier(tt.input)
+			if got != tt.expected {
+				t.Errorf("quoteIdentifier() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
