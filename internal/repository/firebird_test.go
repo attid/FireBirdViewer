@@ -94,13 +94,18 @@ func TestQuoteIdentifier(t *testing.T) {
 			input:    "",
 			expected: "\"\"",
 		},
+		{
+			name:     "SQL Injection attempt",
+			input:    "USERS\"; DROP TABLE STUDENTS; --",
+			expected: "\"USERS\"\"; DROP TABLE STUDENTS; --\"",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := repo.quoteIdentifier(tt.input)
 			if got != tt.expected {
-				t.Errorf("quoteIdentifier() = %v, want %v", got, tt.expected)
+				t.Errorf("quoteIdentifier(%q) = %v, want %v", tt.input, got, tt.expected)
 			}
 		})
 	}

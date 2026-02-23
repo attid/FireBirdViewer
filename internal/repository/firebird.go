@@ -427,7 +427,7 @@ func (r *FirebirdRepository) GetTableDDL(params domain.ConnectionParams, tableNa
 	defer rows.Close()
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("CREATE TABLE %s (\n", r.quoteIdentifier(tableName)))
+	sb.WriteString(fmt.Sprintf("CREATE TABLE %s (\n", r.quoteIdentifier(strings.ToUpper(tableName))))
 
 	var lines []string
 	for rows.Next() {
@@ -485,8 +485,12 @@ func (r *FirebirdRepository) GetTableDDL(params domain.ConnectionParams, tableNa
 			}
 		}
 		if len(pkCols) > 0 {
-			pkName := "PK_" + tableName
-			sb.WriteString(fmt.Sprintf(",\n    CONSTRAINT %s PRIMARY KEY (%s)", r.quoteIdentifier(pkName), strings.Join(pkCols, ", ")))
+			quotedPkCols := make([]string, len(pkCols))
+			for i, col := range pkCols {
+				quotedPkCols[i] = r.quoteIdentifier(col)
+			}
+			pkName := "PK_" + strings.ToUpper(tableName)
+			sb.WriteString(fmt.Sprintf(",\n    CONSTRAINT %s PRIMARY KEY (%s)", r.quoteIdentifier(pkName), strings.Join(quotedPkCols, ", ")))
 		}
 	}
 
@@ -666,8 +670,7 @@ func (r *FirebirdRepository) ExecuteProcedure(params domain.ConnectionParams, pr
 	// 1. Determine execution mode by checking source for "SUSPEND"
 	source, err := r.GetProcedureSource(params, procName)
 	if err != nil {
-		// If fails, default to selectable or try to execute anyway
-		log.Printf("ExecuteProcedure: could not get source, proceeding cautiously. Error: %v", err)
+		return nil, nil, err
 	}
 
 	isSelectable := false
@@ -712,10 +715,11 @@ func (r *FirebirdRepository) ExecuteProcedure(params domain.ConnectionParams, pr
 	}
 
 	var query string
+	safeProcName := r.quoteIdentifier(strings.ToUpper(procName))
 	if isSelectable {
-		query = fmt.Sprintf("SELECT * FROM %s(%s)", r.quoteIdentifier(procName), strings.Join(paramPlaceholders, ", "))
+		query = fmt.Sprintf("SELECT * FROM %s(%s)", safeProcName, strings.Join(paramPlaceholders, ", "))
 	} else {
-		query = fmt.Sprintf("EXECUTE PROCEDURE %s(%s)", r.quoteIdentifier(procName), strings.Join(paramPlaceholders, ", "))
+		query = fmt.Sprintf("EXECUTE PROCEDURE %s(%s)", safeProcName, strings.Join(paramPlaceholders, ", "))
 	}
 
 	log.Printf("ExecuteProcedure Query: %s, Args: %v", query, orderedParams)
