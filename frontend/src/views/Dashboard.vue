@@ -233,7 +233,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import Button from 'primevue/button'
@@ -249,7 +249,8 @@ import SelectButton from 'primevue/selectbutton'
 import { useToast } from 'primevue/usetoast'
 import EditRowDialog from '../components/EditRowDialog.vue'
 import ExecuteProcedureDialog from '../components/ExecuteProcedureDialog.vue'
-import SqlEditor from '../components/SqlEditor.vue'
+
+const SqlEditor = defineAsyncComponent(() => import('../components/SqlEditor.vue'))
 
 const router = useRouter()
 const toast = useToast()
