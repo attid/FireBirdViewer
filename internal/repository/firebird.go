@@ -219,13 +219,13 @@ func (r *FirebirdRepository) scanRows(rows *sql.Rows, relationName string, db *s
 
 	var result []map[string]interface{}
 
-	for rows.Next() {
-		values := make([]interface{}, len(colNames))
-		valuePtrs := make([]interface{}, len(colNames))
-		for i := range values {
-			valuePtrs[i] = &values[i]
-		}
+	values := make([]interface{}, len(colNames))
+	valuePtrs := make([]interface{}, len(colNames))
+	for i := range values {
+		valuePtrs[i] = &values[i]
+	}
 
+	for rows.Next() {
 		if err := rows.Scan(valuePtrs...); err != nil {
 			log.Printf("scanRows Scan Error: %v", err)
 			return nil, nil, err
