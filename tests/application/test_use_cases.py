@@ -10,6 +10,7 @@ from src.application.use_cases import (
     DeleteRowUseCase,
     InsertRowUseCase,
     ListObjectsUseCase,
+    UpdateCellUseCase,
     ViewTableDataUseCase,
 )
 from src.domain.models import Column, ConnectionParams, PagedData, ProcedureInfo, QueryResult
@@ -77,6 +78,14 @@ class FakeDatabasePort(DatabasePort):
             raise ValueError(msg)
         self._inserted.append((table_name, data))
 
+    async def update_cell(
+        self, table_name: str, db_key_hex: str, column_name: str, value: object
+    ) -> None:
+        # Track updates for assertions
+        if not hasattr(self, "_updated"):
+            self._updated: list[tuple[str, str, str, object]] = []
+        self._updated.append((table_name, db_key_hex, column_name, value))
+
     async def close(self) -> None:
         self._closed = True
 
@@ -143,3 +152,21 @@ async def test_insert_row_empty_data_raises():
     use_case = InsertRowUseCase(db)
     with pytest.raises(ValueError, match="No data"):
         await use_case.execute("USERS", {})
+
+
+@pytest.mark.asyncio
+async def test_update_cell():
+    db = FakeDatabasePort()
+    use_case = UpdateCellUseCase(db)
+    await use_case.execute("USERS", "aabb", "NAME", "Bob")
+    assert len(db._updated) == 1
+    assert db._updated[0] == ("USERS", "aabb", "NAME", "Bob")
+
+
+@pytest.mark.asyncio
+async def test_update_cell_to_empty():
+    """Empty string should be passed through (repo converts to NULL)."""
+    db = FakeDatabasePort()
+    use_case = UpdateCellUseCase(db)
+    await use_case.execute("USERS", "aabb", "NAME", "")
+    assert db._updated[0] == ("USERS", "aabb", "NAME", "")

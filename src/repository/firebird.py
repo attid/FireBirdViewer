@@ -302,6 +302,29 @@ class FirebirdRepository(DatabasePort):
             await conn.execute(text(query), param_values)
             await conn.commit()
 
+    async def update_cell(
+        self, table_name: str, db_key_hex: str, column_name: str, value: object
+    ) -> None:
+        """Update a single column value for a row identified by RDB$DB_KEY."""
+        engine = await self._get_engine()
+        db_key_bytes = bytes.fromhex(db_key_hex)
+        quoted_table = _quote(table_name)
+        quoted_col = _quote(column_name)
+
+        # Normalise value: empty string -> NULL, fix datetime T separator
+        if value == "":
+            normalised: object = None
+        else:
+            str_val = str(value)
+            if "T" in str_val and len(str_val) >= 16 and str_val[10:11] == "T":
+                str_val = str_val.replace("T", " ", 1)
+            normalised = str_val
+
+        query = f"UPDATE {quoted_table} SET {quoted_col} = :val WHERE RDB$DB_KEY = :db_key"
+        async with engine.connect() as conn:
+            await conn.execute(text(query), {"val": normalised, "db_key": db_key_bytes})
+            await conn.commit()
+
     async def get_ddl(self, table_name: str) -> str:
         """Generate a CREATE TABLE statement for the given table."""
         columns = await self.get_columns(table_name)

@@ -48,6 +48,11 @@ class DatabasePort(ABC):
     async def insert_row(self, table_name: str, data: dict[str, object]) -> None: ...
 
     @abstractmethod
+    async def update_cell(
+        self, table_name: str, db_key_hex: str, column_name: str, value: object
+    ) -> None: ...
+
+    @abstractmethod
     async def get_ddl(self, table_name: str) -> str: ...
 
     @abstractmethod

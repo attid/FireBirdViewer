@@ -93,6 +93,19 @@ class InsertRowUseCase:
         await self._db.insert_row(table_name, data)
 
 
+class UpdateCellUseCase:
+    """Update a single cell value in a table row."""
+
+    def __init__(self, db: DatabasePort) -> None:
+        self._db = db
+
+    async def execute(
+        self, table_name: str, db_key_hex: str, column_name: str, value: object
+    ) -> None:
+        """Update one column. Raises on DB errors."""
+        await self._db.update_cell(table_name, db_key_hex, column_name, value)
+
+
 class ViewDdlUseCase:
     """Generate DDL for a table."""
 

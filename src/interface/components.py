@@ -219,7 +219,21 @@ def data_table(data: PagedData, object_name: str, object_type: str):
             if len(display_val) > 100:
                 display_val = display_val[:100] + "..."
             null_cls = "text-base-content/40 italic" if val is None else ""
-            cells.append(Td(display_val, cls=f"text-xs {null_cls}"))
+
+            # Inline-edit attributes for table cells (not views, not computed, not BLOB)
+            td_attrs: dict[str, str] = {}
+            if can_delete and db_key and not col.is_computed and col.type_name != "BLOB":
+                td_attrs["cls"] = f"text-xs {null_cls} editable-cell cursor-pointer"
+                td_attrs["data_db_key"] = db_key
+                td_attrs["data_column"] = col.name
+                td_attrs["data_table"] = object_name
+                # Store raw value for the input (not truncated)
+                raw_val = str(val) if val is not None else ""
+                td_attrs["data_value"] = raw_val
+            else:
+                td_attrs["cls"] = f"text-xs {null_cls}"
+
+            cells.append(Td(display_val, **td_attrs))
         body_rows.append(Tr(*cells, cls="hover"))
 
     # Pagination

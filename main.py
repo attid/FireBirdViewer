@@ -4,11 +4,12 @@ Wires together all layers and registers FastHTML routes.
 This is the only module allowed to import from all layers.
 """
 
+import json
 import re
 
 from fasthtml.common import *
 from starlette.requests import Request
-from starlette.responses import RedirectResponse
+from starlette.responses import JSONResponse, RedirectResponse
 from starlette.staticfiles import StaticFiles
 
 from src.application.use_cases import (
@@ -16,6 +17,7 @@ from src.application.use_cases import (
     DeleteRowUseCase,
     InsertRowUseCase,
     ListObjectsUseCase,
+    UpdateCellUseCase,
     ViewDdlUseCase,
     ViewProcedureUseCase,
     ViewTableDataUseCase,
@@ -264,6 +266,33 @@ async def delete(request: Request, table_name: str, db_key: str):
         return data_table(data, table_name, "table")
     except Exception as exc:
         return error_alert(f"Delete failed: {_clean_db_error(exc)}")
+    finally:
+        await repo.close()
+
+
+@rt("/object/table/{table_name}/row/{db_key}")
+async def put(request: Request, table_name: str, db_key: str):
+    """Update a single cell value (inline editing)."""
+    repo = _get_repo(request)
+    if repo is None:
+        return JSONResponse({"ok": False, "error": "Not connected"}, status_code=401)
+
+    try:
+        body = await request.body()
+        payload = json.loads(body)
+        column = payload.get("column", "")
+        value = payload.get("value", "")
+
+        if not column:
+            return JSONResponse({"ok": False, "error": "No column specified"})
+
+        uc = UpdateCellUseCase(repo)
+        await uc.execute(table_name, db_key, column, value)
+        # Return the saved value (empty string means NULL)
+        display = value if value != "" else None
+        return JSONResponse({"ok": True, "value": display})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": _clean_db_error(exc)})
     finally:
         await repo.close()
 
