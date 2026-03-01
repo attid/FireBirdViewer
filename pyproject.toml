@@ -1,0 +1,37 @@
+[project]
+name = "firebirdviewer"
+version = "0.1.0"
+description = "Web-based admin tool for Firebird SQL databases"
+requires-python = ">=3.13"
+dependencies = [
+    "itsdangerous>=2.2.0",
+    "pydantic>=2.12.5",
+    "python-fasthtml>=0.12.47",
+    "sqlalchemy-firebird-async[firebird-driver]>=0.2.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "ruff>=0.15.4",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["src", "tests"]
+extend-exclude = ["OLD"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "N"]
+# F403/F405: fasthtml.common wildcard import is idiomatic
+# F811: FastHTML uses function name as HTTP method, redefinition is by design
+ignore = ["F403", "F405", "F811"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

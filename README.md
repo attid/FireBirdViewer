@@ -1,50 +1,55 @@
-# FireBirdViewer
+# FireBird Viewer
 
-Lightweight web-based administrator for Firebird SQL databases.
+Web-based admin tool for Firebird SQL databases.
+Built with Python (FastHTML + HTMX + DaisyUI) and async SQLAlchemy.
 
-## Features
+## Features (MVP)
 
-- **Quick Connect:** Connect to any Firebird database using Host, Path, User, and Password without saving credentials.
-- **Table Viewer:** Browse tables and view data.
-- **Virtual Scrolling:** Efficiently view large datasets with lazy loading.
-- **Modern UI:** Built with Vue 3, PrimeVue https://primevue.org , and Tailwind CSS.
-- **Dockerized:** Easy to deploy single-container application.
-- **Firebird Support:** Targeted for Firebird 4.0 and 5.0+ (ODS 13+).
+- **Quick Connect** -- connect to any Firebird database (host:path, user, password)
+- **Object Browser** -- sidebar tree with Tables, Views, Procedures
+- **Data Viewer** -- paginated table data with column sorting
+- **DDL Viewer** -- generated CREATE TABLE statements
+- **Procedure Viewer** -- source code and parameter info
+- **Modern UI** -- DaisyUI + Tailwind CSS, HTMX for dynamic updates
+
+## Tech Stack
+
+- **Backend:** Python 3.13, FastHTML, SQLAlchemy 2.0 async
+- **DB Driver:** [sqlalchemy-firebird-async](https://pypi.org/project/sqlalchemy-firebird-async/) with firebird-driver
+- **Frontend:** HTMX (no JS framework), DaisyUI/Tailwind CSS
+- **Session:** Signed cookies (itsdangerous)
 
 ## Getting Started
 
 ### Prerequisites
 
-- Docker
-- *Or for local dev:* Go 1.24+ and Node.js 20+
+- Python 3.13+
+- [uv](https://docs.astral.sh/uv/) package manager
+- Firebird database server
 
-### Running with Docker
-
-```bash
-docker pull ghcr.io/attid/firebirdviewer:latest
-```
-or build and run
+### Install and Run
 
 ```bash
-docker build -t firebirdviewer .
-docker run -p 8080:8080 firebirdviewer
+uv sync                    # install dependencies
+uv run python main.py      # start server on localhost:5001
 ```
-Access the application at `http://localhost:8080`.
 
-### Local Development
+Or using just:
 
-1.  **Backend:**
-    ```bash
-    go run ./cmd/server
-    ```
+```bash
+just install    # uv sync
+just run        # uv run python main.py
+```
 
-2.  **Frontend:**
-    ```bash
-    cd frontend
-    npm install
-    npm run dev
-    ```
+Open `http://localhost:5001` in your browser.
 
-## Roadmap
+## Project Structure
 
-See [PLAN.md](PLAN.md) for the development roadmap.
+```
+src/
+  domain/          # Pydantic models (no dependencies)
+  repository/      # Firebird SQL queries (SQLAlchemy async)
+  interface/       # FastHTML components and session management
+static/            # CSS/JS assets
+main.py            # Application entry point
+```

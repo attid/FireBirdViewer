@@ -1,5 +1,6 @@
 from playwright.sync_api import sync_playwright, expect
 
+
 def test_sorting_and_pagination(page):
     # Enable console logging
     page.on("console", lambda msg: print(f"Console: {msg.text}"))
@@ -31,18 +32,18 @@ def test_sorting_and_pagination(page):
 
         response_data = data_unsorted
         if "sortField=LAST_NAME" in params:
-             response_data = data_sorted
+            response_data = data_sorted
 
         response = {
             "data": response_data,
             "columns": [
                 {"name": "EMP_NO", "type": "INTEGER"},
                 {"name": "FIRST_NAME", "type": "VARCHAR"},
-                {"name": "LAST_NAME", "type": "VARCHAR"}
+                {"name": "LAST_NAME", "type": "VARCHAR"},
             ],
             "total": 100,
             "limit": 25,
-            "offset": 0
+            "offset": 0,
         }
 
         route.fulfill(json=response)
@@ -59,7 +60,7 @@ def test_sorting_and_pagination(page):
     # The tree node with label "Tables" should exist.
     try:
         page.get_by_text("Tables", exact=True).wait_for(timeout=5000)
-        page.get_by_text("Tables", exact=True).click() # Expand if needed
+        page.get_by_text("Tables", exact=True).click()  # Expand if needed
     except:
         print("Could not find 'Tables' node. Taking screenshot.")
         page.screenshot(path="verification/debug_tree.png")
@@ -82,6 +83,7 @@ def test_sorting_and_pagination(page):
 
     # Screenshot Sorted
     page.screenshot(path="verification/2_sorted.png")
+
 
 if __name__ == "__main__":
     with sync_playwright() as p:

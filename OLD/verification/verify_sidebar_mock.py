@@ -1,26 +1,40 @@
 from playwright.sync_api import sync_playwright, Page, expect
 
+
 def run(playwright):
     browser = playwright.chromium.launch(headless=True)
     context = browser.new_context(viewport={"width": 1280, "height": 800})
     page = context.new_page()
 
     # Mock API responses
-    page.route("**/api/config", lambda route: route.fulfill(json={"version": "1.2.3", "demo_mode": False}))
+    page.route(
+        "**/api/config", lambda route: route.fulfill(json={"version": "1.2.3", "demo_mode": False})
+    )
 
     # Mock data lists
-    page.route("**/api/tables", lambda route: route.fulfill(json=[{"name": "EMPLOYEE"}, {"name": "DEPARTMENT"}]))
+    page.route(
+        "**/api/tables",
+        lambda route: route.fulfill(json=[{"name": "EMPLOYEE"}, {"name": "DEPARTMENT"}]),
+    )
     page.route("**/api/views", lambda route: route.fulfill(json=[{"name": "PHONE_LIST"}]))
     page.route("**/api/procedures", lambda route: route.fulfill(json=[{"name": "GET_EMP_PROJ"}]))
 
     # Mock table data
-    page.route("**/api/table/EMPLOYEE/data**", lambda route: route.fulfill(json={
-        "data": [{"EMP_NO": 1, "FULL_NAME": "John Doe"}],
-        "columns": [{"name": "EMP_NO", "type": "INTEGER"}, {"name": "FULL_NAME", "type": "VARCHAR"}],
-        "total": 1,
-        "limit": 100,
-        "offset": 0
-    }))
+    page.route(
+        "**/api/table/EMPLOYEE/data**",
+        lambda route: route.fulfill(
+            json={
+                "data": [{"EMP_NO": 1, "FULL_NAME": "John Doe"}],
+                "columns": [
+                    {"name": "EMP_NO", "type": "INTEGER"},
+                    {"name": "FULL_NAME", "type": "VARCHAR"},
+                ],
+                "total": 1,
+                "limit": 100,
+                "offset": 0,
+            }
+        ),
+    )
 
     page.add_init_script("localStorage.setItem('token', 'fake-token');")
 
@@ -33,7 +47,7 @@ def run(playwright):
 
     # Verify Sidebar structure
     # Use exact match or filter to sidebar
-    sidebar = page.locator(".w-64") # Sidebar class
+    sidebar = page.locator(".w-64")  # Sidebar class
     expect(sidebar.get_by_text("Tools")).to_be_visible()
     expect(sidebar.get_by_text("Tables")).to_be_visible()
 
@@ -89,11 +103,12 @@ def run(playwright):
     if not sidebar.get_by_text("GET_EMP_PROJ").is_visible():
         sidebar.get_by_text("Procedures").click()
 
-    page.wait_for_timeout(500) # Wait for animation
+    page.wait_for_timeout(500)  # Wait for animation
 
     page.screenshot(path="verification/sidebar_complete.png")
 
     browser.close()
+
 
 with sync_playwright() as playwright:
     run(playwright)

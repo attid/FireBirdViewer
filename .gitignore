@@ -1,22 +1,33 @@
-# Binaries
-firebird-web-admin
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
 
-# Test binary, built with `go test -c`
-*.test
+# Virtual environment
+.venv/
 
-# Output of the go coverage tool, specifically when used with LiteIDE
-*.out
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+
+# Environment
+.env
+
+# Session secret key
+.sesskey
+
+# Logs
 *.log
 
-# Node
-node_modules/
-frontend/dist/
-frontend/node_modules/
-.DS_Store
-server
-/.idea/
+# uv
+uv.lock
