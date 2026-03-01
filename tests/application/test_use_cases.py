@@ -8,6 +8,7 @@ import pytest
 from src.application.ports import DatabasePort
 from src.application.use_cases import (
     DeleteRowUseCase,
+    ExecuteAiDmlUseCase,
     ExecuteProcedureUseCase,
     ExecuteQueryUseCase,
     InsertRowUseCase,
@@ -233,3 +234,69 @@ async def test_execute_query_whitespace_only_raises():
     use_case = ExecuteQueryUseCase(db)
     with pytest.raises(ValueError, match="Empty query"):
         await use_case.execute("   \n  ")
+
+
+@pytest.mark.asyncio
+async def test_execute_ai_dml():
+    db = FakeDatabasePort()
+    use_case = ExecuteAiDmlUseCase(db)
+    result = await use_case.execute("INSERT INTO USERS (ID) VALUES (99)")
+    assert result.row_count == 1
+
+
+@pytest.mark.asyncio
+async def test_execute_ai_dml_empty_raises():
+    db = FakeDatabasePort()
+    use_case = ExecuteAiDmlUseCase(db)
+    with pytest.raises(ValueError, match="Empty SQL"):
+        await use_case.execute("")
+
+
+@pytest.mark.asyncio
+async def test_execute_ai_dml_whitespace_raises():
+    db = FakeDatabasePort()
+    use_case = ExecuteAiDmlUseCase(db)
+    with pytest.raises(ValueError, match="Empty SQL"):
+        await use_case.execute("   ")
+
+
+@pytest.mark.asyncio
+async def test_ask_ai_use_case():
+    """Test AskAiUseCase delegates to the injected ask_fn."""
+    from src.application.use_cases import AskAiUseCase
+    from src.domain.models import AiSettings
+
+    db = FakeDatabasePort()
+
+    async def fake_ask(question, settings, db_port, history_json=None):
+        return ("Here is a SELECT", "SELECT 1", False, b"[]")
+
+    settings = AiSettings(base_url="http://test", api_key="test-key")
+    use_case = AskAiUseCase(db, ask_fn=fake_ask)
+    text, sql, is_dml, history = await use_case.execute("test question", settings)
+
+    assert text == "Here is a SELECT"
+    assert sql == "SELECT 1"
+    assert is_dml is False
+    assert history == b"[]"
+
+
+@pytest.mark.asyncio
+async def test_ask_ai_use_case_passes_history():
+    """Test that conversation history is forwarded to ask_fn."""
+    from src.application.use_cases import AskAiUseCase
+    from src.domain.models import AiSettings
+
+    db = FakeDatabasePort()
+    received_history = None
+
+    async def fake_ask(question, settings, db_port, history_json=None):
+        nonlocal received_history
+        received_history = history_json
+        return ("Answer", "", False, b'[{"msg": 1}]')
+
+    settings = AiSettings(base_url="http://test", api_key="test-key")
+    use_case = AskAiUseCase(db, ask_fn=fake_ask)
+    await use_case.execute("q", settings, history_json=b"previous_history")
+
+    assert received_history == b"previous_history"

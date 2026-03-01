@@ -4,7 +4,14 @@ Tests DSN building, model validation, and edge cases.
 No external dependencies -- pure unit tests.
 """
 
-from src.domain.models import Column, ConnectionParams, PagedData
+from src.domain.models import (
+    AiMessage,
+    AiSettings,
+    Column,
+    ConnectionParams,
+    PagedData,
+    QueryResult,
+)
 
 
 class TestConnectionParamsDsn:
@@ -76,3 +83,45 @@ class TestPagedData:
         assert data.total_count == 0
         assert data.page == 0
         assert data.page_size == 50
+
+
+class TestAiSettings:
+    def test_required_fields(self):
+        settings = AiSettings(base_url="https://api.openai.com/v1", api_key="sk-test")
+        assert settings.base_url == "https://api.openai.com/v1"
+        assert settings.api_key == "sk-test"
+        assert settings.model == "gpt-4o-mini"  # default
+
+    def test_custom_model(self):
+        settings = AiSettings(
+            base_url="http://localhost:11434/v1",
+            api_key="ollama",
+            model="llama3",
+        )
+        assert settings.model == "llama3"
+
+
+class TestAiMessage:
+    def test_user_message(self):
+        msg = AiMessage(role="user", content="Show all tables")
+        assert msg.role == "user"
+        assert msg.content == "Show all tables"
+        assert msg.sql == ""
+        assert msg.is_dml is False
+        assert msg.result is None
+
+    def test_assistant_message_with_dml(self):
+        msg = AiMessage(
+            role="assistant",
+            content="Here is the INSERT:",
+            sql="INSERT INTO T (ID) VALUES (1)",
+            is_dml=True,
+        )
+        assert msg.is_dml is True
+        assert "INSERT" in msg.sql
+
+    def test_assistant_message_with_result(self):
+        result = QueryResult(columns=["ID"], rows=[[1], [2]], row_count=2)
+        msg = AiMessage(role="assistant", content="Found 2 rows", result=result)
+        assert msg.result is not None
+        assert msg.result.row_count == 2

@@ -170,3 +170,214 @@ document.addEventListener('htmx:afterSwap', function() {
         });
     });
 })();
+
+/* ------------------------------------------------------------------ */
+/* Recent connections (localStorage)                                  */
+/* Save database+user on successful connect, show list on form load   */
+/* ------------------------------------------------------------------ */
+
+(function() {
+    var STORAGE_KEY = 'fbviewer_recent';
+    var MAX_RECENT = 10;
+
+    function getRecent() {
+        try {
+            return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function saveRecent(database, user) {
+        var list = getRecent();
+        // Remove duplicate
+        list = list.filter(function(item) {
+            return !(item.database === database && item.user === user);
+        });
+        // Add to front
+        list.unshift({ database: database, user: user });
+        // Trim
+        if (list.length > MAX_RECENT) list = list.slice(0, MAX_RECENT);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    }
+
+    function removeRecent(database, user) {
+        var list = getRecent();
+        list = list.filter(function(item) {
+            return !(item.database === database && item.user === user);
+        });
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    }
+
+    function renderRecent() {
+        var container = document.getElementById('recent-connections');
+        if (!container) return;
+        var list = getRecent();
+        if (list.length === 0) return;
+
+        var html = '<div class="divider text-xs text-base-content/40">Recent</div>';
+        html += '<div class="flex flex-col gap-1">';
+        list.forEach(function(item, idx) {
+            html += '<div class="flex items-center gap-2 group">'
+                + '<a href="#" class="recent-conn-item flex-1 text-sm'
+                + ' link link-hover truncate" data-idx="' + idx + '">'
+                + escapeHtml(item.database)
+                + ' <span class="text-base-content/40">(' + escapeHtml(item.user) + ')</span>'
+                + '</a>'
+                + '<button class="recent-conn-del btn btn-ghost btn-xs'
+                + ' opacity-0 group-hover:opacity-100" data-idx="' + idx
+                + '" title="Remove">\u00d7</button>'
+                + '</div>';
+        });
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
+    function escapeHtml(s) {
+        var d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    // Fill form when clicking a recent connection
+    document.addEventListener('click', function(e) {
+        var item = e.target.closest('.recent-conn-item');
+        if (item) {
+            e.preventDefault();
+            var idx = parseInt(item.dataset.idx, 10);
+            var list = getRecent();
+            if (list[idx]) {
+                var dbInput = document.querySelector('input[name="database"]');
+                var userInput = document.querySelector('input[name="user"]');
+                var pwInput = document.querySelector('input[name="password"]');
+                if (dbInput) dbInput.value = list[idx].database;
+                if (userInput) userInput.value = list[idx].user;
+                if (pwInput) { pwInput.value = ''; pwInput.focus(); }
+            }
+            return;
+        }
+
+        var del = e.target.closest('.recent-conn-del');
+        if (del) {
+            e.preventDefault();
+            var didx = parseInt(del.dataset.idx, 10);
+            var dlist = getRecent();
+            if (dlist[didx]) {
+                removeRecent(dlist[didx].database, dlist[didx].user);
+                renderRecent();
+            }
+        }
+    });
+
+    // Save on successful connect (HTMX redirects to /dashboard)
+    document.addEventListener('htmx:beforeSwap', function(e) {
+        // If the connect form triggered a redirect to dashboard, save the connection
+        if (e.detail.xhr && e.detail.xhr.responseURL &&
+            e.detail.xhr.responseURL.indexOf('/dashboard') !== -1) {
+            var dbInput = document.querySelector('input[name="database"]');
+            var userInput = document.querySelector('input[name="user"]');
+            if (dbInput && userInput && dbInput.value) {
+                saveRecent(dbInput.value, userInput.value);
+            }
+        }
+    });
+
+    // Render on page load and after HTMX swaps
+    document.addEventListener('DOMContentLoaded', renderRecent);
+    document.addEventListener('htmx:afterSwap', renderRecent);
+})();
+
+/* ------------------------------------------------------------------ */
+/* AI Assistant: settings in localStorage + form interception          */
+/* ------------------------------------------------------------------ */
+
+(function() {
+    var AI_STORAGE_KEY = 'fbviewer_ai_settings';
+
+    function getAiSettings() {
+        try {
+            return JSON.parse(localStorage.getItem(AI_STORAGE_KEY)) || {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    // Called by the Settings modal "Save" button (window-scoped)
+    window.__saveAiSettings = function() {
+        var baseUrl = document.getElementById('ai-base-url');
+        var apiKey = document.getElementById('ai-api-key');
+        var model = document.getElementById('ai-model');
+        var settings = {
+            base_url: baseUrl ? baseUrl.value : '',
+            api_key: apiKey ? apiKey.value : '',
+            model: model ? model.value : ''
+        };
+        localStorage.setItem(AI_STORAGE_KEY, JSON.stringify(settings));
+    };
+
+    // Pre-fill settings modal inputs when it appears
+    function populateAiSettingsModal() {
+        var settings = getAiSettings();
+        var baseUrl = document.getElementById('ai-base-url');
+        var apiKey = document.getElementById('ai-api-key');
+        var model = document.getElementById('ai-model');
+        if (baseUrl && settings.base_url) baseUrl.value = settings.base_url;
+        if (apiKey && settings.api_key) apiKey.value = settings.api_key;
+        if (model && settings.model) model.value = settings.model;
+    }
+
+    // Inject AI settings + conversation history before HTMX sends the request
+    document.addEventListener('htmx:configRequest', function(e) {
+        var elt = e.detail.elt;
+        var form = elt.closest('#ai-ask-form');
+        if (!form) return;
+
+        var settings = getAiSettings();
+        e.detail.parameters['ai_base_url'] = settings.base_url || '';
+        e.detail.parameters['ai_api_key'] = settings.api_key || '';
+        e.detail.parameters['ai_model'] = settings.model || '';
+
+        // Include conversation history (base64-encoded, stored in a hidden div)
+        var historyEl = document.getElementById('ai-history-data');
+        if (historyEl && historyEl.textContent.trim()) {
+            e.detail.parameters['ai_history'] = historyEl.textContent.trim();
+        }
+    });
+
+    // Clear input after successful submission and scroll chat to bottom
+    document.addEventListener('htmx:afterSwap', function(e) {
+        // Populate settings modal on any swap (in case it just appeared)
+        populateAiSettingsModal();
+
+        // Clear the question input after successful AI ask
+        var input = document.getElementById('ai-question-input');
+        if (input && e.detail.target && e.detail.target.id === 'ai-chat-messages') {
+            input.value = '';
+            // Scroll chat to bottom
+            var chat = document.getElementById('ai-chat-messages');
+            if (chat) {
+                chat.scrollTop = chat.scrollHeight;
+            }
+        }
+    });
+
+    // Clear chat: reset messages and conversation history
+    window.__clearAiChat = function() {
+        var chat = document.getElementById('ai-chat-messages');
+        if (chat) {
+            chat.innerHTML =
+                '<div class="p-4">'
+                + '<p class="text-base-content/60 text-sm text-center">'
+                + 'Ask questions about your database in natural language. '
+                + 'I can query data, explain schemas, and suggest SQL.'
+                + '</p></div>';
+        }
+        var history = document.getElementById('ai-history-data');
+        if (history) {
+            history.textContent = '';
+        }
+    };
+
+    // Also populate on page load
+    document.addEventListener('DOMContentLoaded', populateAiSettingsModal);
+})();

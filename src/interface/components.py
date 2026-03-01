@@ -5,10 +5,13 @@ that return FastHTML elements.
 """
 
 import json
+import re
 
 from fasthtml.common import *
 
-from src.domain.models import Column, PagedData, ProcedureInfo, QueryResult
+from src.domain.models import AiMessage, Column, PagedData, ProcedureInfo, QueryResult
+
+_GITHUB_URL = "https://github.com/attid/FireBirdViewer"
 
 
 def page_layout(*content, title: str = "FireBird Viewer"):
@@ -17,7 +20,23 @@ def page_layout(*content, title: str = "FireBird Viewer"):
         _navbar(title),
         Div(*content, cls="container mx-auto max-w-7xl p-4"),
         Div(id="toast-container", cls="toast toast-end toast-top z-50"),
+        _footer(),
         cls="min-h-screen bg-base-200",
+    )
+
+
+def _footer():
+    """Page footer with GitHub link."""
+    return Footer(
+        Div(
+            A(
+                "GitHub",
+                href=_GITHUB_URL,
+                target="_blank",
+                cls="link link-hover",
+            ),
+            cls="text-center text-sm text-base-content/50 py-4",
+        ),
     )
 
 
@@ -62,6 +81,8 @@ def connect_form(database: str = "", user: str = ""):
                 hx_swap="innerHTML",
             ),
             Div(id="connect-error", cls="mt-4"),
+            # Recent connections populated by JS from localStorage
+            Div(id="recent-connections", cls="mt-6"),
             cls="card bg-base-100 shadow-xl p-8 w-full max-w-md",
         ),
         cls="flex items-center justify-center min-h-[60vh]",
@@ -96,6 +117,19 @@ def dashboard_layout(tables: list[str], views: list[str], procedures: list[str],
                         Span("SQL", cls="badge badge-sm badge-info mr-2"),
                         Span("SQL Editor"),
                         hx_get="/sql-editor",
+                        hx_target="#content-area",
+                        hx_swap="innerHTML",
+                        cls="flex items-center p-2 rounded hover:bg-base-200"
+                        " cursor-pointer text-sm font-semibold",
+                    ),
+                    cls="mb-2",
+                ),
+                # AI Assistant link
+                Div(
+                    A(
+                        Span("AI", cls="badge badge-sm badge-warning mr-2"),
+                        Span("AI Assistant"),
+                        hx_get="/ai",
                         hx_target="#content-area",
                         hx_swap="innerHTML",
                         cls="flex items-center p-2 rounded hover:bg-base-200"
@@ -707,4 +741,285 @@ def toast(message: str, alert_type: str = "info"):
             cls=f"alert alert-{alert_type}",
         ),
         hx_swap_oob="beforeend:#toast-container",
+    )
+
+
+# ---------------------------------------------------------------------------
+# AI Assistant components
+# ---------------------------------------------------------------------------
+
+
+def ai_assistant():
+    """AI SQL Assistant page with chat area and settings."""
+    return Div(
+        Div(
+            H3("AI SQL Assistant", cls="text-lg font-bold"),
+            Div(
+                Button(
+                    "Clear",
+                    cls="btn btn-ghost btn-sm",
+                    onclick="window.__clearAiChat()",
+                ),
+                Button(
+                    "Settings",
+                    cls="btn btn-ghost btn-sm",
+                    onclick="document.getElementById('ai-settings-modal').showModal()",
+                ),
+                cls="flex gap-1",
+            ),
+            cls="flex items-center justify-between mb-3",
+        ),
+        # Settings modal
+        _ai_settings_modal(),
+        # Chat messages area
+        Div(
+            Div(
+                P(
+                    "Ask questions about your database in natural language. "
+                    "I can query data, explain schemas, and suggest SQL.",
+                    cls="text-base-content/60 text-sm text-center",
+                ),
+                cls="p-4",
+            ),
+            id="ai-chat-messages",
+            cls="bg-base-200 rounded-box p-4 mb-3 overflow-y-auto",
+            style="min-height: 300px; max-height: 60vh;",
+        ),
+        # Input form
+        Form(
+            Div(
+                Input(
+                    type="text",
+                    name="question",
+                    id="ai-question-input",
+                    placeholder="Ask a question about your database...",
+                    cls="input input-bordered flex-1",
+                    autocomplete="off",
+                ),
+                Button(
+                    "Ask",
+                    type="submit",
+                    cls="btn btn-primary",
+                    id="ai-ask-btn",
+                ),
+                cls="flex gap-2",
+            ),
+            id="ai-ask-form",
+            hx_post="/ai/ask",
+            hx_target="#ai-chat-messages",
+            hx_swap="beforeend",
+            hx_indicator="#ai-loading",
+        ),
+        # Loading indicator
+        Div(
+            Span(cls="loading loading-dots loading-sm"),
+            Span("Thinking...", cls="text-sm text-base-content/60 ml-2"),
+            id="ai-loading",
+            cls="htmx-indicator flex items-center gap-1 mt-2",
+        ),
+        # Hidden conversation history (updated via OOB swap from server)
+        Div(id="ai-history-data", cls="hidden"),
+        cls="card bg-base-100 shadow p-4",
+    )
+
+
+def _ai_settings_modal():
+    """DaisyUI modal for AI settings (base_url, api_key, model)."""
+    return Dialog(
+        Div(
+            H3("AI Settings", cls="font-bold text-lg"),
+            P(
+                "Configure your OpenAI-compatible API. Settings are stored in "
+                "your browser (localStorage) and sent with each request.",
+                cls="text-sm text-base-content/60 py-2",
+            ),
+            Div(
+                Label("API Base URL", cls="label"),
+                Input(
+                    type="text",
+                    id="ai-base-url",
+                    placeholder="https://api.openai.com/v1",
+                    cls="input input-bordered w-full",
+                ),
+                cls="form-control mb-3",
+            ),
+            Div(
+                Label("API Key", cls="label"),
+                Input(
+                    type="password",
+                    id="ai-api-key",
+                    placeholder="sk-...",
+                    cls="input input-bordered w-full",
+                    autocomplete="off",
+                ),
+                cls="form-control mb-3",
+            ),
+            Div(
+                Label("Model", cls="label"),
+                Input(
+                    type="text",
+                    id="ai-model",
+                    placeholder="gpt-4o-mini",
+                    cls="input input-bordered w-full",
+                ),
+                cls="form-control mb-3",
+            ),
+            Div(
+                Button(
+                    "Save",
+                    cls="btn btn-primary",
+                    onclick="window.__saveAiSettings(); "
+                    "document.getElementById('ai-settings-modal').close()",
+                ),
+                Button(
+                    "Cancel",
+                    cls="btn btn-ghost",
+                    onclick="document.getElementById('ai-settings-modal').close()",
+                ),
+                cls="modal-action mt-4",
+            ),
+            cls="modal-box shadow-xl border border-base-300",
+        ),
+        Form(method="dialog", cls="modal-backdrop"),
+        id="ai-settings-modal",
+        cls="modal",
+    )
+
+
+def ai_user_message(question: str):
+    """Render a user message bubble in the chat."""
+    return Div(
+        Div(
+            P(question),
+            cls="chat-bubble chat-bubble-primary",
+        ),
+        cls="chat chat-end",
+    )
+
+
+def _strip_code_fences(text: str) -> str:
+    """Strip markdown code fences (```...```) from text for clean display."""
+    return re.sub(r"```\w*\s*\n(.*?)```", r"\1", text, flags=re.DOTALL).strip()
+
+
+def ai_assistant_message(msg: AiMessage):
+    """Render an assistant message bubble with optional SQL and results."""
+    parts = []
+
+    # Strip code fences from display text (extracted SQL is shown separately)
+    display_text = _strip_code_fences(msg.content)
+    parts.append(
+        Div(
+            display_text,
+            cls="text-sm whitespace-pre-wrap break-words bg-base-200 p-3 rounded-box mb-2",
+        )
+    )
+
+    # If DML SQL was extracted, show it with an Execute button
+    if msg.sql and msg.is_dml:
+        parts.append(
+            Div(
+                H4("Suggested SQL (requires confirmation):", cls="text-sm font-semibold mb-1"),
+                Pre(
+                    Code(msg.sql, cls="language-sql text-sm"),
+                    cls="bg-base-300 p-2 rounded-box mb-2",
+                ),
+                Form(
+                    Input(type="hidden", name="sql", value=msg.sql),
+                    Button(
+                        "Execute",
+                        type="submit",
+                        cls="btn btn-warning btn-sm",
+                        hx_confirm="Execute this DML statement?",
+                    ),
+                    hx_post="/ai/execute",
+                    hx_target="#ai-chat-messages",
+                    hx_swap="beforeend",
+                ),
+                cls="border border-warning/30 rounded-box p-3 mb-2",
+            )
+        )
+
+    # If there are query results, show them inline
+    if msg.result and msg.result.columns:
+        parts.append(_ai_results_table(msg.result))
+    elif msg.result and msg.result.error:
+        parts.append(
+            Div(
+                Span(f"Error: {msg.result.error}"),
+                cls="alert alert-error text-sm mb-2",
+            )
+        )
+
+    return Div(
+        Div(
+            *parts,
+            cls="chat-bubble chat-bubble-accent max-w-full",
+        ),
+        cls="chat chat-start",
+    )
+
+
+def _ai_results_table(result: QueryResult):
+    """Render inline results table for AI chat."""
+    header = Tr(*[Th(col, cls="text-xs") for col in result.columns])
+    body_rows = []
+    for row in result.rows[:100]:  # Limit display
+        cells = []
+        for val in row:
+            display = str(val) if val is not None else "NULL"
+            if len(display) > 100:
+                display = display[:100] + "..."
+            null_cls = "text-base-content/40 italic" if val is None else ""
+            cells.append(Td(display, cls=f"text-xs {null_cls}"))
+        body_rows.append(Tr(*cells, cls="hover"))
+
+    extra = ""
+    if len(result.rows) > 100:
+        extra = P(
+            f"Showing 100 of {len(result.rows)} rows",
+            cls="text-xs text-base-content/50 mt-1",
+        )
+
+    return Div(
+        Span(f"{result.row_count} rows", cls="badge badge-sm badge-ghost mb-1"),
+        Div(
+            Table(
+                Thead(header),
+                Tbody(*body_rows),
+                cls="table table-xs table-pin-rows",
+            ),
+            cls="overflow-x-auto max-h-[40vh]",
+        ),
+        extra,
+        cls="mb-2",
+    )
+
+
+def ai_dml_result(result: QueryResult):
+    """Render the result of a user-confirmed DML execution."""
+    if result.error:
+        return Div(
+            Div(
+                Span(f"Error: {result.error}"),
+                cls="chat-bubble chat-bubble-error",
+            ),
+            cls="chat chat-start",
+        )
+
+    if result.columns:
+        return Div(
+            Div(
+                _ai_results_table(result),
+                cls="chat-bubble chat-bubble-accent max-w-full",
+            ),
+            cls="chat chat-start",
+        )
+
+    return Div(
+        Div(
+            Span(f"Executed successfully. Rows affected: {result.row_count}"),
+            cls="chat-bubble chat-bubble-success",
+        ),
+        cls="chat chat-start",
     )

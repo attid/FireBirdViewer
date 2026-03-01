@@ -4,6 +4,7 @@ Wires together all layers and registers FastHTML routes.
 This is the only module allowed to import from all layers.
 """
 
+import base64
 import json
 import re
 
@@ -13,8 +14,10 @@ from starlette.responses import JSONResponse, RedirectResponse
 from starlette.staticfiles import StaticFiles
 
 from src.application.use_cases import (
+    AskAiUseCase,
     ConnectUseCase,
     DeleteRowUseCase,
+    ExecuteAiDmlUseCase,
     ExecuteProcedureUseCase,
     ExecuteQueryUseCase,
     InsertRowUseCase,
@@ -24,8 +27,12 @@ from src.application.use_cases import (
     ViewProcedureUseCase,
     ViewTableDataUseCase,
 )
-from src.domain.models import ConnectionParams, QueryResult
+from src.domain.models import AiMessage, AiSettings, ConnectionParams, QueryResult
 from src.interface.components import (
+    ai_assistant,
+    ai_assistant_message,
+    ai_dml_result,
+    ai_user_message,
     connect_form,
     dashboard_layout,
     data_table,
@@ -43,6 +50,7 @@ from src.interface.session import (
     get_cookie_name,
     load_session,
 )
+from src.repository.ai_agent import ask_agent
 from src.repository.firebird import FirebirdRepository
 
 app, rt = fast_app(
@@ -387,6 +395,127 @@ async def post(request: Request):
         return error_alert(str(exc))
     except Exception as exc:
         return error_alert(_clean_db_error(exc))
+    finally:
+        await repo.close()
+
+
+@rt("/ai")
+async def get(request: Request):
+    """Show the AI SQL Assistant page."""
+    repo = _get_repo(request)
+    if repo is None:
+        return error_alert("Not connected. Please reconnect.")
+    await repo.close()
+    return ai_assistant()
+
+
+@rt("/ai/ask")
+async def post(request: Request):
+    """Handle an AI assistant question."""
+    repo = _get_repo(request)
+    if repo is None:
+        return error_alert("Not connected. Please reconnect.")
+
+    try:
+        form = await request.form()
+        question = str(form.get("question", "")).strip()
+        if not question:
+            return error_alert("Please enter a question.")
+
+        # AI settings from form (injected by JS from localStorage)
+        base_url = str(form.get("ai_base_url", "")).strip()
+        api_key = str(form.get("ai_api_key", "")).strip()
+        model = str(form.get("ai_model", "")).strip()
+
+        if not base_url or not api_key:
+            return Div(
+                ai_user_message(question),
+                Div(
+                    Div(
+                        Span("Please configure AI settings first (click Settings button above)."),
+                        cls="chat-bubble chat-bubble-error",
+                    ),
+                    cls="chat chat-start",
+                ),
+            )
+
+        settings = AiSettings(
+            base_url=base_url,
+            api_key=api_key,
+            model=model or "gpt-4o-mini",
+        )
+
+        # Restore conversation history (base64-encoded JSON bytes from JS)
+        history_b64 = str(form.get("ai_history", "")).strip()
+        history_json: bytes | None = None
+        if history_b64:
+            try:
+                history_json = base64.b64decode(history_b64)
+            except Exception:
+                history_json = None
+
+        uc = AskAiUseCase(repo, ask_fn=ask_agent)
+        response_text, sql, is_dml, updated_history = await uc.execute(
+            question, settings, history_json=history_json
+        )
+
+        # Build assistant message
+        ai_msg = AiMessage(
+            role="assistant",
+            content=response_text,
+            sql=sql,
+            is_dml=is_dml,
+        )
+
+        # Encode updated history for the client (base64)
+        history_b64_out = base64.b64encode(updated_history).decode("ascii")
+
+        return Div(
+            ai_user_message(question),
+            ai_assistant_message(ai_msg),
+            # Hidden element with updated conversation history (OOB swap)
+            Div(
+                history_b64_out,
+                id="ai-history-data",
+                cls="hidden",
+                hx_swap_oob="true",
+            ),
+        )
+    except Exception as exc:
+        return Div(
+            Div(
+                Div(
+                    Span(f"Error: {_clean_db_error(exc)}"),
+                    cls="chat-bubble chat-bubble-error",
+                ),
+                cls="chat chat-start",
+            ),
+        )
+    finally:
+        await repo.close()
+
+
+@rt("/ai/execute")
+async def post(request: Request):
+    """Execute a user-confirmed DML statement from the AI assistant."""
+    repo = _get_repo(request)
+    if repo is None:
+        return error_alert("Not connected. Please reconnect.")
+
+    try:
+        form = await request.form()
+        sql = str(form.get("sql", "")).strip()
+        if not sql:
+            return error_alert("No SQL to execute.")
+
+        uc = ExecuteAiDmlUseCase(repo)
+        result = await uc.execute(sql)
+        # Clean raw DB errors
+        if result.error:
+            result = QueryResult(error=_clean_db_error(result.error))
+        return ai_dml_result(result)
+    except Exception as exc:
+        return ai_dml_result(QueryResult(error=_clean_db_error(exc)))
     finally:
         await repo.close()
 

@@ -4,10 +4,13 @@ Orchestrate domain logic and infrastructure through ports.
 Each use-case represents a single user action.
 """
 
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from src.application.ports import DatabasePort
-from src.domain.models import ConnectionParams, PagedData, ProcedureInfo, QueryResult
+from src.domain.models import AiSettings, ConnectionParams, PagedData, ProcedureInfo, QueryResult
 
 
 @dataclass
@@ -22,7 +25,7 @@ class DatabaseObjects:
 class ConnectUseCase:
     """Verify that database connection parameters are valid."""
 
-    def __init__(self, db_factory: "type[DatabasePort]") -> None:
+    def __init__(self, db_factory: type[DatabasePort]) -> None:
         self._db_factory = db_factory
 
     async def execute(self, params: ConnectionParams) -> bool:
@@ -147,5 +150,50 @@ class ExecuteQueryUseCase:
         stripped = sql.strip()
         if not stripped:
             msg = "Empty query"
+            raise ValueError(msg)
+        return await self._db.execute_query(stripped)
+
+
+class AskAiUseCase:
+    """Send a natural-language question to the AI assistant.
+
+    The agent uses the database schema and can execute SELECT queries
+    to answer questions.  DML is never auto-executed -- it is returned
+    as a suggestion for the user to confirm.
+
+    The actual agent callable is injected from the composition root
+    to keep the application layer free of repository imports.
+    """
+
+    AskFn = Callable[
+        [str, AiSettings, DatabasePort, bytes | None],
+        Awaitable[tuple[str, str, bool, bytes]],
+    ]
+
+    def __init__(self, db: DatabasePort, ask_fn: AskFn) -> None:
+        self._db = db
+        self._ask_fn = ask_fn
+
+    async def execute(
+        self,
+        question: str,
+        settings: AiSettings,
+        history_json: bytes | None = None,
+    ) -> tuple[str, str, bool, bytes]:
+        """Ask the AI agent and return (response_text, sql, is_dml, history)."""
+        return await self._ask_fn(question, settings, self._db, history_json)
+
+
+class ExecuteAiDmlUseCase:
+    """Execute a user-confirmed DML statement suggested by the AI assistant."""
+
+    def __init__(self, db: DatabasePort) -> None:
+        self._db = db
+
+    async def execute(self, sql: str) -> QueryResult:
+        """Execute the DML and return results."""
+        stripped = sql.strip()
+        if not stripped:
+            msg = "Empty SQL"
             raise ValueError(msg)
         return await self._db.execute_query(stripped)

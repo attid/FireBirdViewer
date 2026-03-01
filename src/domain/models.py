@@ -99,3 +99,21 @@ class PagedData(BaseModel):
     total_count: int = 0
     page: int = 0
     page_size: int = 50
+
+
+class AiSettings(BaseModel):
+    """Settings for AI assistant (OpenAI-compatible API)."""
+
+    base_url: str = Field(description="API base URL, e.g. https://api.openai.com/v1")
+    api_key: str = Field(description="API key (sent from client, never persisted)")
+    model: str = Field(default="gpt-4o-mini", description="Model name")
+
+
+class AiMessage(BaseModel):
+    """A single message in AI chat history."""
+
+    role: str = Field(description="'user' or 'assistant'")
+    content: str = Field(description="Message text")
+    sql: str = ""
+    is_dml: bool = False
+    result: QueryResult | None = None
