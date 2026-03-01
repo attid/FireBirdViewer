@@ -5,13 +5,28 @@ that return FastHTML elements.
 """
 
 import json
+import os
 import re
+from pathlib import Path
 
 from fasthtml.common import *
 
 from src.domain.models import AiMessage, Column, PagedData, ProcedureInfo, QueryResult
 
 _GITHUB_URL = "https://github.com/attid/FireBirdViewer"
+
+
+def _read_version() -> str:
+    v = os.environ.get("APP_VERSION", "").strip()
+    if v:
+        return v
+    version_file = Path(__file__).resolve().parent.parent.parent / "VERSION"
+    if version_file.exists():
+        return version_file.read_text().strip()
+    return "dev"
+
+
+_APP_VERSION = _read_version()
 
 
 def page_layout(*content, title: str = "FireBird Viewer"):
@@ -26,7 +41,7 @@ def page_layout(*content, title: str = "FireBird Viewer"):
 
 
 def _footer():
-    """Page footer with GitHub link."""
+    """Page footer with GitHub link and version."""
     return Footer(
         Div(
             A(
@@ -35,6 +50,7 @@ def _footer():
                 target="_blank",
                 cls="link link-hover",
             ),
+            Span(f" · v{_APP_VERSION}", cls="text-base-content/30"),
             cls="text-center text-sm text-base-content/50 py-4",
         ),
     )

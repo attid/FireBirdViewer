@@ -6,7 +6,10 @@ This is the only module allowed to import from all layers.
 
 import base64
 import json
+import logging
+import os
 import re
+from pathlib import Path
 
 from fasthtml.common import *
 from starlette.requests import Request
@@ -52,6 +55,22 @@ from src.interface.session import (
 )
 from src.repository.ai_agent import ask_agent
 from src.repository.firebird import FirebirdRepository
+
+log = logging.getLogger("firebirdviewer")
+
+
+def _read_version() -> str:
+    """Read app version from APP_VERSION env or VERSION file."""
+    v = os.environ.get("APP_VERSION", "").strip()
+    if v:
+        return v
+    version_file = Path(__file__).parent / "VERSION"
+    if version_file.exists():
+        return version_file.read_text().strip()
+    return "dev"
+
+
+APP_VERSION = _read_version()
 
 app, rt = fast_app(
     pico=False,
@@ -528,4 +547,5 @@ async def get(request: Request):
     return response
 
 
+log.info("FireBird Viewer v%s starting", APP_VERSION)
 serve()

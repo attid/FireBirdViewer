@@ -14,7 +14,12 @@ Runs fully offline — no internet required at runtime.
 - **Inline Editing** — click any cell to edit, Enter to save
 - **Insert / Delete Rows** — add new rows, delete with confirmation
 - **SQL Editor** — CodeMirror 6 with syntax highlighting, schema autocomplete, Ctrl+Enter
+- **AI SQL Assistant** — natural-language queries via any OpenAI-compatible API (PydanticAI)
 - **Docker** — multi-stage build, fully offline, no CDN dependencies
+
+> **AI Assistant safety:** The agent executes only read-only `SELECT` queries automatically.
+> Any data-modifying statement (`INSERT`, `UPDATE`, `DELETE`, `DROP`, etc.) is **never**
+> executed by the agent — it only suggests SQL and requires explicit user confirmation.
 
 ## Tech Stack
 
@@ -71,13 +76,13 @@ main.py              # Composition root: routes, app config
 src/
   domain/            # Pydantic models (no dependencies)
   application/       # Use cases and ports (abstract interfaces)
-  repository/        # Firebird SQL queries (SQLAlchemy async)
+  repository/        # Firebird SQL queries (SQLAlchemy async), AI agent (PydanticAI)
   interface/         # FastHTML components and session management
 static/
   vendor/            # Built assets: styles.css, htmx.min.js, codemirror.bundle.js
   app.js             # Client JS (toasts, confirm modal, inline editing)
   codemirror-init.js # CodeMirror initialization and HTMX sync
   src/               # Build sources (Tailwind input, CodeMirror entry)
-tests/               # pytest unit tests (32 tests)
+tests/               # pytest unit tests (66 tests)
 Dockerfile           # Multi-stage: node (build) → python (runtime)
 ```
