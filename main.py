@@ -192,27 +192,32 @@ async def post(request: Request, table_name: str):
     if repo is None:
         return error_alert("Not connected. Please reconnect.")
 
+    data: dict[str, str] = {}
     try:
         form = await request.form()
         # Form fields are prefixed with "col_" to avoid clashes
-        data: dict[str, object] = {}
         for key, value in form.items():
             if key.startswith("col_"):
                 col_name = key[4:]  # strip "col_" prefix
-                data[col_name] = value
+                data[col_name] = str(value)
 
         if not data:
             return error_alert("No data provided.")
 
         insert_uc = InsertRowUseCase(repo)
-        await insert_uc.execute(table_name, data)
+        await insert_uc.execute(table_name, dict(data))  # widen to dict[str, object]
 
         # Re-fetch data to show updated table
         view_uc = ViewTableDataUseCase(repo)
         page_data = await view_uc.execute(table_name, page=0, page_size=50)
         return data_table(page_data, table_name, "table")
     except Exception as exc:
-        return error_alert(f"Insert failed: {exc}")
+        # Re-show form with entered values and error message
+        try:
+            columns = await repo.get_columns(table_name)
+            return insert_form(columns, table_name, values=data, error=str(exc))
+        except Exception:
+            return error_alert(f"Insert failed: {exc}")
     finally:
         await repo.close()
 
