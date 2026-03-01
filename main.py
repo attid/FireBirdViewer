@@ -428,6 +428,23 @@ async def get(request: Request):
     return ai_assistant()
 
 
+@rt("/ai/defaults")
+async def get(request: Request):
+    """Return non-secret AI defaults from env vars.
+
+    API key is NEVER sent to the client — it stays on the server
+    and is used as a fallback in /ai/ask when the client doesn't
+    provide one.
+    """
+    return JSONResponse(
+        {
+            "base_url": os.environ.get("AI_BASE_URL", ""),
+            "api_key_set": bool(os.environ.get("AI_API_KEY", "")),
+            "model": os.environ.get("AI_MODEL", ""),
+        }
+    )
+
+
 @rt("/ai/ask")
 async def post(request: Request):
     """Handle an AI assistant question."""
@@ -441,10 +458,10 @@ async def post(request: Request):
         if not question:
             return error_alert("Please enter a question.")
 
-        # AI settings from form (injected by JS from localStorage)
-        base_url = str(form.get("ai_base_url", "")).strip()
-        api_key = str(form.get("ai_api_key", "")).strip()
-        model = str(form.get("ai_model", "")).strip()
+        # AI settings: client values with server env fallback
+        base_url = str(form.get("ai_base_url", "")).strip() or os.environ.get("AI_BASE_URL", "")
+        api_key = str(form.get("ai_api_key", "")).strip() or os.environ.get("AI_API_KEY", "")
+        model = str(form.get("ai_model", "")).strip() or os.environ.get("AI_MODEL", "")
 
         if not base_url or not api_key:
             return Div(

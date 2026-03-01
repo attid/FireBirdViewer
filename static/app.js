@@ -302,6 +302,29 @@ document.addEventListener('htmx:afterSwap', function() {
         }
     }
 
+    // Load non-secret defaults from server env vars (AI_BASE_URL, AI_MODEL)
+    // if localStorage is empty. API key is NEVER sent from the server —
+    // it stays server-side and is used as a fallback in /ai/ask.
+    function loadDefaultsIfEmpty() {
+        var existing = getAiSettings();
+        if (existing.base_url) return; // already configured
+        fetch('/ai/defaults')
+            .then(function(r) { return r.json(); })
+            .then(function(defaults) {
+                if (defaults.base_url) {
+                    var settings = {
+                        base_url: defaults.base_url,
+                        api_key: '',  // never from server
+                        model: defaults.model || '',
+                        api_key_on_server: defaults.api_key_set || false
+                    };
+                    localStorage.setItem(AI_STORAGE_KEY, JSON.stringify(settings));
+                    populateAiSettingsModal();
+                }
+            })
+            .catch(function() { /* ignore */ });
+    }
+
     // Called by the Settings modal "Save" button (window-scoped)
     window.__saveAiSettings = function() {
         var baseUrl = document.getElementById('ai-base-url');
@@ -323,6 +346,9 @@ document.addEventListener('htmx:afterSwap', function() {
         var model = document.getElementById('ai-model');
         if (baseUrl && settings.base_url) baseUrl.value = settings.base_url;
         if (apiKey && settings.api_key) apiKey.value = settings.api_key;
+        if (apiKey && !settings.api_key && settings.api_key_on_server) {
+            apiKey.placeholder = '(set on server via AI_API_KEY)';
+        }
         if (model && settings.model) model.value = settings.model;
     }
 
@@ -348,6 +374,10 @@ document.addEventListener('htmx:afterSwap', function() {
     document.addEventListener('htmx:afterSwap', function(e) {
         // Populate settings modal on any swap (in case it just appeared)
         populateAiSettingsModal();
+        // Load env defaults when AI page first appears
+        if (document.getElementById('ai-ask-form')) {
+            loadDefaultsIfEmpty();
+        }
 
         // Clear the question input after successful AI ask
         var input = document.getElementById('ai-question-input');
