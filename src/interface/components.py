@@ -32,8 +32,8 @@ def _navbar(title: str):
     )
 
 
-def connect_form():
-    """Database connection form."""
+def connect_form(database: str = "", user: str = ""):
+    """Database connection form. Preserves values on error (except password)."""
     return Div(
         Div(
             H2("Connect to Firebird", cls="text-2xl font-bold mb-6 text-center"),
@@ -42,8 +42,9 @@ def connect_form():
                     "Database",
                     "database",
                     "host:path or alias, e.g. localhost:employee",
+                    value=database,
                 ),
-                _form_field("User", "user", "SYSDBA"),
+                _form_field("User", "user", "SYSDBA", value=user),
                 Div(
                     Label("Password", cls="label"),
                     Input(

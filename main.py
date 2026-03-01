@@ -127,9 +127,15 @@ async def post(request: Request, database: str, user: str, password: str):
     try:
         ok = await connect.execute(params)
         if not ok:
-            return page_layout(connect_form(), error_alert("Connection failed"))
+            return page_layout(
+                connect_form(database=database, user=user),
+                error_alert("Connection failed"),
+            )
     except Exception as exc:
-        return page_layout(connect_form(), error_alert(str(exc)))
+        return page_layout(
+            connect_form(database=database, user=user),
+            error_alert(_clean_db_error(exc)),
+        )
 
     token = create_session_token(params)
     response = RedirectResponse("/dashboard", status_code=303)
