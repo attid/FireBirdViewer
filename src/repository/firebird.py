@@ -284,7 +284,15 @@ class FirebirdRepository(DatabasePort):
             param_key = f"p{idx}"
             param_names.append(f":{param_key}")
             # Treat empty strings as NULL (user left field blank)
-            param_values[param_key] = None if val == "" else val
+            if val == "":
+                param_values[param_key] = None
+            else:
+                # HTML datetime-local gives "2025-01-15T06:15" but Firebird
+                # expects "2025-01-15 06:15" (T is parsed as timezone region)
+                str_val = str(val)
+                if "T" in str_val and len(str_val) >= 16 and str_val[10:11] == "T":
+                    str_val = str_val.replace("T", " ", 1)
+                param_values[param_key] = str_val
 
         cols_sql = ", ".join(col_clauses)
         vals_sql = ", ".join(param_names)
