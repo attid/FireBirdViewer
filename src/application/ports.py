@@ -59,6 +59,9 @@ class DatabasePort(ABC):
     async def get_procedure_source(self, proc_name: str) -> ProcedureInfo: ...
 
     @abstractmethod
+    async def execute_procedure(self, proc_name: str, params: dict[str, str]) -> QueryResult: ...
+
+    @abstractmethod
     async def execute_query(self, sql: str) -> QueryResult: ...
 
     @abstractmethod

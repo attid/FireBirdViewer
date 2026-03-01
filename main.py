@@ -15,6 +15,7 @@ from starlette.staticfiles import StaticFiles
 from src.application.use_cases import (
     ConnectUseCase,
     DeleteRowUseCase,
+    ExecuteProcedureUseCase,
     InsertRowUseCase,
     ListObjectsUseCase,
     UpdateCellUseCase,
@@ -31,6 +32,7 @@ from src.interface.components import (
     error_alert,
     insert_form,
     page_layout,
+    procedure_result,
     procedure_view,
 )
 from src.interface.session import (
@@ -293,6 +295,30 @@ async def put(request: Request, table_name: str, db_key: str):
         return JSONResponse({"ok": True, "value": display})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": _clean_db_error(exc)})
+    finally:
+        await repo.close()
+
+
+@rt("/object/proc/{proc_name}/execute")
+async def post(request: Request, proc_name: str):
+    """Execute a stored procedure with parameters from form data."""
+    repo = _get_repo(request)
+    if repo is None:
+        return error_alert("Not connected. Please reconnect.")
+
+    try:
+        form = await request.form()
+        params: dict[str, str] = {}
+        for key, value in form.items():
+            if key.startswith("param_"):
+                param_name = key[6:]  # strip "param_" prefix
+                params[param_name] = str(value)
+
+        uc = ExecuteProcedureUseCase(repo)
+        result = await uc.execute(proc_name, params)
+        return procedure_result(result, proc_name)
+    except Exception as exc:
+        return error_alert(f"Execution failed: {_clean_db_error(exc)}")
     finally:
         await repo.close()
 

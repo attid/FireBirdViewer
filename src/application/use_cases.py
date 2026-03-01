@@ -7,7 +7,7 @@ Each use-case represents a single user action.
 from dataclasses import dataclass
 
 from src.application.ports import DatabasePort
-from src.domain.models import ConnectionParams, PagedData, ProcedureInfo
+from src.domain.models import ConnectionParams, PagedData, ProcedureInfo, QueryResult
 
 
 @dataclass
@@ -124,3 +124,13 @@ class ViewProcedureUseCase:
 
     async def execute(self, proc_name: str) -> ProcedureInfo:
         return await self._db.get_procedure_source(proc_name)
+
+
+class ExecuteProcedureUseCase:
+    """Execute a stored procedure with parameters."""
+
+    def __init__(self, db: DatabasePort) -> None:
+        self._db = db
+
+    async def execute(self, proc_name: str, params: dict[str, str]) -> QueryResult:
+        return await self._db.execute_procedure(proc_name, params)

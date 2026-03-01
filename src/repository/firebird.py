@@ -394,6 +394,70 @@ class FirebirdRepository(DatabasePort):
 
         return ProcedureInfo(name=proc_name, source=source, params=params)
 
+    async def execute_procedure(self, proc_name: str, params: dict[str, str]) -> QueryResult:
+        """Execute a stored procedure and return results.
+
+        Determines execution mode by checking if source contains SUSPEND
+        (selectable procedure -> SELECT * FROM) vs non-selectable
+        (EXECUTE PROCEDURE).
+        """
+        engine = await self._get_engine()
+
+        # 1. Get source to determine if selectable
+        proc_info = await self.get_procedure_source(proc_name)
+        is_selectable = "SUSPEND" in (proc_info.source or "").upper()
+
+        # 2. Get input params in correct order
+        input_params = [p for p in proc_info.params if p.param_type == 0]
+
+        # 3. Build ordered param values
+        quoted_proc = _quote(proc_name)
+        param_placeholders = []
+        param_values: dict[str, object] = {}
+        for idx, p in enumerate(input_params):
+            key = f"p{idx}"
+            param_placeholders.append(f":{key}")
+            raw = params.get(p.name, "")
+            # Empty -> NULL, datetime T fix
+            if raw == "":
+                param_values[key] = None
+            else:
+                if "T" in raw and len(raw) >= 16 and raw[10:11] == "T":
+                    raw = raw.replace("T", " ", 1)
+                param_values[key] = raw
+
+        params_sql = ", ".join(param_placeholders)
+
+        if is_selectable:
+            query = f"SELECT * FROM {quoted_proc}({params_sql})"
+        else:
+            query = f"EXECUTE PROCEDURE {quoted_proc}({params_sql})"
+
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(text(query), param_values)
+                if result.returns_rows:
+                    cols = [str(k).strip() for k in result.columns]
+                    raw_rows = result.fetchall()
+                    rows = []
+                    for row in raw_rows:
+                        processed = []
+                        for val in row:
+                            if isinstance(val, bytes):
+                                try:
+                                    processed.append(val.decode("utf-8"))
+                                except UnicodeDecodeError:
+                                    processed.append(val.hex())
+                            else:
+                                processed.append(val)
+                        rows.append(processed)
+                    return QueryResult(columns=cols, rows=rows, row_count=len(rows))
+                else:
+                    await conn.commit()
+                    return QueryResult(row_count=result.rowcount or 0)
+        except Exception as exc:
+            return QueryResult(error=str(exc))
+
     async def execute_query(self, sql: str) -> QueryResult:
         """Execute an arbitrary SQL query and return results."""
         engine = await self._get_engine()

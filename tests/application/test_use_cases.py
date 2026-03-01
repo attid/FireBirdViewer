@@ -8,6 +8,7 @@ import pytest
 from src.application.ports import DatabasePort
 from src.application.use_cases import (
     DeleteRowUseCase,
+    ExecuteProcedureUseCase,
     InsertRowUseCase,
     ListObjectsUseCase,
     UpdateCellUseCase,
@@ -85,6 +86,13 @@ class FakeDatabasePort(DatabasePort):
         if not hasattr(self, "_updated"):
             self._updated: list[tuple[str, str, str, object]] = []
         self._updated.append((table_name, db_key_hex, column_name, value))
+
+    async def execute_procedure(self, proc_name: str, params: dict[str, str]) -> QueryResult:
+        return QueryResult(
+            columns=["RESULT"],
+            rows=[["OK"]],
+            row_count=1,
+        )
 
     async def close(self) -> None:
         self._closed = True
@@ -170,3 +178,13 @@ async def test_update_cell_to_empty():
     use_case = UpdateCellUseCase(db)
     await use_case.execute("USERS", "aabb", "NAME", "")
     assert db._updated[0] == ("USERS", "aabb", "NAME", "")
+
+
+@pytest.mark.asyncio
+async def test_execute_procedure():
+    db = FakeDatabasePort()
+    use_case = ExecuteProcedureUseCase(db)
+    result = await use_case.execute("SP_CALC", {"X": "10"})
+    assert result.row_count == 1
+    assert result.columns == ["RESULT"]
+    assert result.rows == [["OK"]]
