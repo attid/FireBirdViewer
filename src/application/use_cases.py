@@ -134,3 +134,18 @@ class ExecuteProcedureUseCase:
 
     async def execute(self, proc_name: str, params: dict[str, str]) -> QueryResult:
         return await self._db.execute_procedure(proc_name, params)
+
+
+class ExecuteQueryUseCase:
+    """Execute an arbitrary SQL query."""
+
+    def __init__(self, db: DatabasePort) -> None:
+        self._db = db
+
+    async def execute(self, sql: str) -> QueryResult:
+        """Execute SQL and return results. Raises on empty input."""
+        stripped = sql.strip()
+        if not stripped:
+            msg = "Empty query"
+            raise ValueError(msg)
+        return await self._db.execute_query(stripped)

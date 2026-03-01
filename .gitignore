@@ -31,3 +31,6 @@ build/
 
 # uv
 uv.lock
+
+# Node.js (build tooling only)
+node_modules/

@@ -427,17 +427,18 @@ class FirebirdRepository(DatabasePort):
                 param_values[key] = raw
 
         params_sql = ", ".join(param_placeholders)
+        args_clause = f"({params_sql})" if params_sql else ""
 
         if is_selectable:
-            query = f"SELECT * FROM {quoted_proc}({params_sql})"
+            query = f"SELECT * FROM {quoted_proc}{args_clause}"
         else:
-            query = f"EXECUTE PROCEDURE {quoted_proc}({params_sql})"
+            query = f"EXECUTE PROCEDURE {quoted_proc}{args_clause}"
 
         try:
             async with engine.connect() as conn:
                 result = await conn.execute(text(query), param_values)
                 if result.returns_rows:
-                    cols = [str(k).strip() for k in result.columns]
+                    cols = [str(k).strip() for k in list(result.keys())]
                     raw_rows = result.fetchall()
                     rows = []
                     for row in raw_rows:

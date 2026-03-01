@@ -9,6 +9,7 @@ from src.application.ports import DatabasePort
 from src.application.use_cases import (
     DeleteRowUseCase,
     ExecuteProcedureUseCase,
+    ExecuteQueryUseCase,
     InsertRowUseCase,
     ListObjectsUseCase,
     UpdateCellUseCase,
@@ -188,3 +189,47 @@ async def test_execute_procedure():
     assert result.row_count == 1
     assert result.columns == ["RESULT"]
     assert result.rows == [["OK"]]
+
+
+@pytest.mark.asyncio
+async def test_execute_procedure_no_params():
+    """Procedure with no input params should work (no empty parentheses)."""
+    db = FakeDatabasePort()
+    use_case = ExecuteProcedureUseCase(db)
+    result = await use_case.execute("SP_CALC", {})
+    assert result.row_count == 1
+    assert result.columns == ["RESULT"]
+
+
+@pytest.mark.asyncio
+async def test_execute_query():
+    db = FakeDatabasePort()
+    use_case = ExecuteQueryUseCase(db)
+    result = await use_case.execute("SELECT 1")
+    assert result.row_count == 1
+    assert result.columns == ["RESULT"]
+    assert result.rows == [[1]]
+
+
+@pytest.mark.asyncio
+async def test_execute_query_strips_whitespace():
+    db = FakeDatabasePort()
+    use_case = ExecuteQueryUseCase(db)
+    result = await use_case.execute("  SELECT 1  \n")
+    assert result.row_count == 1
+
+
+@pytest.mark.asyncio
+async def test_execute_query_empty_raises():
+    db = FakeDatabasePort()
+    use_case = ExecuteQueryUseCase(db)
+    with pytest.raises(ValueError, match="Empty query"):
+        await use_case.execute("")
+
+
+@pytest.mark.asyncio
+async def test_execute_query_whitespace_only_raises():
+    db = FakeDatabasePort()
+    use_case = ExecuteQueryUseCase(db)
+    with pytest.raises(ValueError, match="Empty query"):
+        await use_case.execute("   \n  ")

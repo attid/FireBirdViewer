@@ -1,0 +1,38 @@
+{
+  "name": "firebirdviewer",
+  "version": "1.0.0",
+  "description": "Web-based admin tool for Firebird SQL databases. Built with Python (FastHTML + HTMX + DaisyUI) and async SQLAlchemy.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "build:css": "tailwindcss -i static/src/input.css -o static/vendor/styles.css --minify",
+    "build:js": "esbuild static/src/codemirror-entry.js --bundle --minify --format=iife --outfile=static/vendor/codemirror.bundle.js",
+    "build:htmx": "cp node_modules/htmx.org/dist/htmx.min.js static/vendor/htmx.min.js",
+    "build": "npm run build:css && npm run build:js && npm run build:htmx"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/attid/FireBirdViewer.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/attid/FireBirdViewer/issues"
+  },
+  "homepage": "https://github.com/attid/FireBirdViewer#readme",
+  "devDependencies": {
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/state": "^6.5.4",
+    "@codemirror/view": "^6.39.15",
+    "codemirror": "^6.0.2",
+    "daisyui": "^4.12.24",
+    "esbuild": "^0.27.3",
+    "htmx.org": "^2.0.7",
+    "tailwindcss": "^3.4.19"
+  }
+}

@@ -32,5 +32,10 @@ test-fast:
 arch-test:
     uv run python .linters/check_imports.py
 
+# Build vendor assets (CSS + JS bundles, requires npm install)
+build-vendor:
+    mkdir -p static/vendor
+    npm run build
+
 # Full check: fmt + lint + arch-test + test (run before PR)
 check: fmt lint arch-test test

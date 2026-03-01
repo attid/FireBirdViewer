@@ -16,6 +16,7 @@ from src.application.use_cases import (
     ConnectUseCase,
     DeleteRowUseCase,
     ExecuteProcedureUseCase,
+    ExecuteQueryUseCase,
     InsertRowUseCase,
     ListObjectsUseCase,
     UpdateCellUseCase,
@@ -23,7 +24,7 @@ from src.application.use_cases import (
     ViewProcedureUseCase,
     ViewTableDataUseCase,
 )
-from src.domain.models import ConnectionParams
+from src.domain.models import ConnectionParams, QueryResult
 from src.interface.components import (
     connect_form,
     dashboard_layout,
@@ -34,6 +35,8 @@ from src.interface.components import (
     page_layout,
     procedure_result,
     procedure_view,
+    query_result,
+    sql_editor,
 )
 from src.interface.session import (
     create_session_token,
@@ -49,13 +52,12 @@ app, rt = fast_app(
         Meta(charset="utf-8"),
         Meta(name="viewport", content="width=device-width, initial-scale=1"),
         Title("FireBird Viewer"),
-        Link(
-            href="https://cdn.jsdelivr.net/npm/daisyui@4.12.23/dist/full.min.css",
-            rel="stylesheet",
-        ),
-        Script(src="https://cdn.tailwindcss.com"),
-        Script(src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.7/dist/htmx.min.js"),
+        Link(rel="icon", href="/static/favicon.ico", type="image/x-icon"),
+        Link(href="/static/vendor/styles.css", rel="stylesheet"),
+        Script(src="/static/vendor/htmx.min.js"),
+        Script(src="/static/vendor/codemirror.bundle.js"),
         Script(src="/static/app.js", defer=True),
+        Script(src="/static/codemirror-init.js", defer=True),
     ),
 )
 
@@ -67,7 +69,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # ---------------------------------------------------------------------------
 
 
-def _clean_db_error(exc: Exception) -> str:
+def _clean_db_error(exc: Exception | str) -> str:
     """Extract a human-readable message from a Firebird/SQLAlchemy exception.
 
     Raw errors look like:
@@ -76,7 +78,7 @@ def _clean_db_error(exc: Exception) -> str:
       (Background on this error at: ...)
 
     We strip the SQL, parameters, and background URL, keeping only the first
-    meaningful sentence.
+    meaningful sentence.  Accepts both Exception objects and raw error strings.
     """
     msg = str(exc)
     # Remove "[SQL: ...]" blocks
@@ -316,9 +318,69 @@ async def post(request: Request, proc_name: str):
 
         uc = ExecuteProcedureUseCase(repo)
         result = await uc.execute(proc_name, params)
+        # Clean raw DB errors returned inside QueryResult
+        if result.error:
+            result = QueryResult(error=_clean_db_error(result.error))
         return procedure_result(result, proc_name)
     except Exception as exc:
         return error_alert(f"Execution failed: {_clean_db_error(exc)}")
+    finally:
+        await repo.close()
+
+
+@rt("/sql-editor")
+async def get(request: Request):
+    """Show the SQL editor panel with schema autocomplete data."""
+    repo = _get_repo(request)
+    if repo is None:
+        return error_alert("Not connected. Please reconnect.")
+
+    try:
+        tables = await repo.list_tables()
+        views = await repo.list_views()
+        procs = await repo.list_procedures()
+
+        # Build schema dict for CodeMirror: {name: [columns]}
+        # Fetch columns for each table/view (for autocomplete)
+        schema: dict[str, list[str]] = {}
+        for name in tables + views:
+            try:
+                cols = await repo.get_columns(name)
+                schema[name] = [c.name for c in cols]
+            except Exception:
+                schema[name] = []
+        # Procedures have no columns but should appear in autocomplete
+        for name in procs:
+            schema[name] = []
+
+        return sql_editor(schema=schema)
+    except Exception as exc:
+        return error_alert(f"Failed to load schema: {exc}")
+    finally:
+        await repo.close()
+
+
+@rt("/sql-editor/execute")
+async def post(request: Request):
+    """Execute an arbitrary SQL query from the editor."""
+    repo = _get_repo(request)
+    if repo is None:
+        return error_alert("Not connected. Please reconnect.")
+
+    try:
+        form = await request.form()
+        sql = str(form.get("sql", ""))
+
+        uc = ExecuteQueryUseCase(repo)
+        result = await uc.execute(sql)
+        # Clean raw DB errors returned inside QueryResult
+        if result.error:
+            result = QueryResult(error=_clean_db_error(result.error))
+        return query_result(result)
+    except ValueError as exc:
+        return error_alert(str(exc))
+    except Exception as exc:
+        return error_alert(_clean_db_error(exc))
     finally:
         await repo.close()
 
