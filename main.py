@@ -4,6 +4,8 @@ Wires together all layers and registers FastHTML routes.
 This is the only module allowed to import from all layers.
 """
 
+import re
+
 from fasthtml.common import *
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
@@ -59,6 +61,27 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _clean_db_error(exc: Exception) -> str:
+    """Extract a human-readable message from a Firebird/SQLAlchemy exception.
+
+    Raw errors look like:
+      (firebird.driver.types.DatabaseError) validation error for column
+      "CARDS"."MONEY", value "*** null ***" [SQL: INSERT ...] [parameters: ...]
+      (Background on this error at: ...)
+
+    We strip the SQL, parameters, and background URL, keeping only the first
+    meaningful sentence.
+    """
+    msg = str(exc)
+    # Remove "[SQL: ...]" blocks
+    msg = re.sub(r"\s*\[SQL:.*", "", msg, flags=re.DOTALL)
+    # Remove "(Background on this error at: ...)"
+    msg = re.sub(r"\s*\(Background on this error.*", "", msg, flags=re.DOTALL)
+    # Strip the leading driver class prefix if present
+    msg = re.sub(r"^\([\w.]+\)\s*", "", msg)
+    return msg.strip() or str(exc)
 
 
 def _get_params(request: Request) -> ConnectionParams | None:
@@ -215,9 +238,9 @@ async def post(request: Request, table_name: str):
         # Re-show form with entered values and error message
         try:
             columns = await repo.get_columns(table_name)
-            return insert_form(columns, table_name, values=data, error=str(exc))
+            return insert_form(columns, table_name, values=data, error=_clean_db_error(exc))
         except Exception:
-            return error_alert(f"Insert failed: {exc}")
+            return error_alert(f"Insert failed: {_clean_db_error(exc)}")
     finally:
         await repo.close()
 
@@ -240,7 +263,7 @@ async def delete(request: Request, table_name: str, db_key: str):
         data = await view_uc.execute(table_name, page=0, page_size=50)
         return data_table(data, table_name, "table")
     except Exception as exc:
-        return error_alert(f"Delete failed: {exc}")
+        return error_alert(f"Delete failed: {_clean_db_error(exc)}")
     finally:
         await repo.close()
 

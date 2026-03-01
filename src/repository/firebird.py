@@ -135,6 +135,7 @@ class FirebirdRepository(DatabasePort):
                     "  f.RDB$FIELD_LENGTH, "
                     "  f.RDB$FIELD_SCALE, "
                     "  rf.RDB$NULL_FLAG, "
+                    "  f.RDB$NULL_FLAG, "
                     "  rf.RDB$UPDATE_FLAG, "
                     "  COALESCE(rc.PK_FLAG, 0) "
                     "FROM RDB$RELATION_FIELDS rf "
@@ -160,15 +161,20 @@ class FirebirdRepository(DatabasePort):
                     sub_type,
                     length,
                     scale,
-                    null_flag,
+                    rel_null_flag,
+                    field_null_flag,
                     update_flag,
                     pk_flag,
                 ) = row
+                # NOT NULL can be set at relation level (rf) or domain level (f)
+                is_not_null = (rel_null_flag is not None and rel_null_flag == 1) or (
+                    field_null_flag is not None and field_null_flag == 1
+                )
                 columns.append(
                     Column(
                         name=name.strip() if name else name,
                         type_name=_map_fb_type(type_code, sub_type, length, scale),
-                        nullable=null_flag is None or null_flag == 0,
+                        nullable=not is_not_null,
                         is_primary_key=bool(pk_flag),
                         is_computed=update_flag is not None and update_flag == 0,
                     )
