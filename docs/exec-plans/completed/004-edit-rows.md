@@ -9,27 +9,27 @@ are not editable. Uses RDB$DB_KEY (hex) to identify the row.
 
 ## Plan
 
-1. [ ] Port: add `update_cell(table_name, db_key_hex, column_name, value) -> None` to `DatabasePort`
-2. [ ] Repository: implement `update_cell` in `FirebirdRepository`
+1. [x] Port: add `update_cell(table_name, db_key_hex, column_name, value) -> None` to `DatabasePort`
+2. [x] Repository: implement `update_cell` in `FirebirdRepository`
    - `UPDATE "T" SET "COL" = :val WHERE RDB$DB_KEY = :db_key`
    - Empty string -> NULL, datetime T-separator fix (reuse from insert)
    - Commit after update
-3. [ ] Use-case: add `UpdateCellUseCase`
-4. [ ] UI: make data cells in `data_table` clickable (tables only)
+3. [x] Use-case: add `UpdateCellUseCase`
+4. [x] UI: make data cells in `data_table` clickable (tables only)
    - Add `data-*` attributes: `data-db-key`, `data-column`, `data-table`
-   - Computed columns get `data-readonly` — not editable
+   - Computed columns and BLOBs excluded
    - CSS class `editable-cell` for hover hint
-5. [ ] JS: inline editing logic in `app.js`
+5. [x] JS: inline editing logic in `app.js`
    - Click on `.editable-cell` -> replace text with `<input>`, focus it
-   - Enter -> send PATCH via htmx/fetch, replace input with new value
+   - Enter -> send PUT via fetch, replace input with new value
    - Esc -> restore original text, remove input
-   - Show brief visual feedback (flash green on success, red on error)
-6. [ ] Route: `PATCH /object/table/{name}/row/{db_key}` in `main.py`
+   - Brief visual feedback: green flash on success, red flash on error
+6. [x] Route: `PUT /object/table/{name}/row/{db_key}` in `main.py`
    - Accept JSON body `{column, value}`
    - Call `UpdateCellUseCase`
    - Return JSON `{ok: true, value: ...}` or `{ok: false, error: ...}`
-7. [ ] Tests: unit tests for `UpdateCellUseCase` with fake port
-8. [ ] `just check` passes
+7. [x] Tests: unit tests for `UpdateCellUseCase` with fake port (21 tests total)
+8. [x] `just check` passes
 
 ## Risks
 
@@ -45,4 +45,4 @@ are not editable. Uses RDB$DB_KEY (hex) to identify the row.
 - Press Esc -> original value restored
 - Edit NOT NULL column to empty -> error shown (red flash)
 - Computed columns not clickable
-- `just check` green
+- `just check` green (21 tests)
