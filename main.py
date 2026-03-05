@@ -142,7 +142,7 @@ async def get(request: Request):
     params = _get_params(request)
     if params:
         return RedirectResponse("/dashboard", status_code=303)
-    return page_layout(connect_form())
+    return Title("FireBird Viewer"), page_layout(connect_form())
 
 
 @rt("/connect")
@@ -154,12 +154,12 @@ async def post(request: Request, database: str, user: str, password: str):
     try:
         ok = await connect.execute(params)
         if not ok:
-            return page_layout(
+            return Title("FireBird Viewer"), page_layout(
                 connect_form(database=database, user=user),
                 error_alert("Connection failed"),
             )
     except Exception as exc:
-        return page_layout(
+        return Title("FireBird Viewer"), page_layout(
             connect_form(database=database, user=user),
             error_alert(_clean_db_error(exc)),
         )
@@ -183,11 +183,18 @@ async def get(request: Request):
         params = _get_params(request)
         db_name = params.database if params else "Unknown"
     except Exception as exc:
-        return page_layout(error_alert(f"Failed to load database objects: {exc}"))
+        return Title("FireBird Viewer"), page_layout(
+            error_alert(f"Failed to load database objects: {exc}")
+        )
     finally:
         await repo.close()
 
-    return dashboard_layout(objects.tables, objects.views, objects.procedures, db_name)
+    return Title("FireBird Viewer"), dashboard_layout(
+        objects.tables,
+        objects.views,
+        objects.procedures,
+        db_name,
+    )
 
 
 @rt("/object/{obj_type}/{obj_name}")

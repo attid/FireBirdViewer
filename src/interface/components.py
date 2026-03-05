@@ -843,58 +843,86 @@ def _ai_settings_modal():
     """DaisyUI modal for AI settings (base_url, api_key, model)."""
     return Dialog(
         Div(
-            H3("AI Settings", cls="font-bold text-lg"),
-            P(
-                "Configure your OpenAI-compatible API. Settings are stored in "
-                "your browser (localStorage) and sent with each request.",
-                cls="text-sm text-base-content/60 py-2",
+            Div(
+                Div("AI", cls="badge badge-primary badge-sm text-primary-content"),
+                H3("AI Settings", cls="font-bold text-2xl mt-2"),
+                P(
+                    "Configure your OpenAI-compatible API. Settings are stored in "
+                    "your browser (localStorage) and sent with each request.",
+                    cls="text-sm text-base-content/70 mt-2 leading-relaxed",
+                ),
+                cls="px-6 pt-6 pb-4 border-b border-base-300 bg-base-200",
             ),
             Div(
-                Label("API Base URL", cls="label"),
-                Input(
-                    type="text",
-                    id="ai-base-url",
-                    placeholder="https://api.openai.com/v1",
-                    cls="input input-bordered w-full",
+                Div(
+                    Label(
+                        Span("API Base URL", cls="label-text font-semibold text-sm"),
+                        cls="label py-0 pb-2",
+                    ),
+                    Input(
+                        type="text",
+                        id="ai-base-url",
+                        placeholder="https://api.openai.com/v1",
+                        cls="input input-bordered w-full",
+                    ),
+                    P(
+                        "Example: OpenAI, OpenRouter, local proxy",
+                        cls="text-xs text-base-content/60 mt-2",
+                    ),
+                    cls="form-control rounded-box border border-base-300 bg-base-100 p-4",
                 ),
-                cls="form-control mb-3",
+                Div(
+                    Label(
+                        Span("API Key", cls="label-text font-semibold text-sm"),
+                        cls="label py-0 pb-2",
+                    ),
+                    Input(
+                        type="password",
+                        id="ai-api-key",
+                        placeholder="sk-...",
+                        cls="input input-bordered w-full",
+                        autocomplete="off",
+                    ),
+                    P("Stored only in your browser", cls="text-xs text-base-content/60 mt-2"),
+                    cls="form-control rounded-box border border-base-300 bg-base-100 p-4",
+                ),
+                Div(
+                    Label(
+                        Span("Model", cls="label-text font-semibold text-sm"),
+                        cls="label py-0 pb-2",
+                    ),
+                    Input(
+                        type="text",
+                        id="ai-model",
+                        placeholder="gpt-4o-mini",
+                        cls="input input-bordered w-full",
+                    ),
+                    P(
+                        "Any model id supported by your provider",
+                        cls="text-xs text-base-content/60 mt-2",
+                    ),
+                    cls="form-control rounded-box border border-base-300 bg-base-100 p-4",
+                ),
+                cls="px-6 py-5 space-y-4",
             ),
             Div(
-                Label("API Key", cls="label"),
-                Input(
-                    type="password",
-                    id="ai-api-key",
-                    placeholder="sk-...",
-                    cls="input input-bordered w-full",
-                    autocomplete="off",
+                Div(
+                    Button(
+                        "Save",
+                        cls="btn btn-primary btn-sm min-w-24",
+                        onclick="window.__saveAiSettings(); "
+                        "document.getElementById('ai-settings-modal').close()",
+                    ),
+                    Button(
+                        "Cancel",
+                        cls="btn btn-outline btn-sm min-w-24",
+                        onclick="document.getElementById('ai-settings-modal').close()",
+                    ),
+                    cls="w-full flex items-center justify-end gap-2",
                 ),
-                cls="form-control mb-3",
+                cls="px-6 pb-6 pt-3 border-t border-base-300 bg-base-100",
             ),
-            Div(
-                Label("Model", cls="label"),
-                Input(
-                    type="text",
-                    id="ai-model",
-                    placeholder="gpt-4o-mini",
-                    cls="input input-bordered w-full",
-                ),
-                cls="form-control mb-3",
-            ),
-            Div(
-                Button(
-                    "Save",
-                    cls="btn btn-primary",
-                    onclick="window.__saveAiSettings(); "
-                    "document.getElementById('ai-settings-modal').close()",
-                ),
-                Button(
-                    "Cancel",
-                    cls="btn btn-ghost",
-                    onclick="document.getElementById('ai-settings-modal').close()",
-                ),
-                cls="modal-action mt-4",
-            ),
-            cls="modal-box shadow-xl border border-base-300",
+            cls="modal-box w-11/12 max-w-xl p-0 shadow-2xl border border-base-300",
         ),
         Form(method="dialog", cls="modal-backdrop"),
         id="ai-settings-modal",
