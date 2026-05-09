@@ -4,11 +4,13 @@ Uses itsdangerous to sign connection parameters into a cookie.
 No JWT, no localStorage -- just a signed server-side cookie.
 """
 
+import os
+
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from src.domain.models import ConnectionParams
 
-_SECRET_KEY = "change-me-in-production"  # TODO: move to env var
+_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY", "change-me-in-production")
 _COOKIE_NAME = "fb_session"
 _MAX_AGE = 86400  # 24 hours
 
