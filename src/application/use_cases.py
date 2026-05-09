@@ -197,3 +197,53 @@ class ExecuteAiDmlUseCase:
             msg = "Empty SQL"
             raise ValueError(msg)
         return await self._db.execute_query(stripped)
+
+
+@dataclass
+class SqlEditorSchema:
+    """Schema data for the SQL editor autocomplete."""
+
+    tables: list[str]
+    views: list[str]
+    procedures: list[str]
+    schema: dict[str, list[str]]  # name -> [column_names]
+
+
+class GetColumnsUseCase:
+    """Get column metadata for a table."""
+
+    def __init__(self, db: DatabasePort) -> None:
+        self._db = db
+
+    async def execute(self, table_name: str) -> list[Column]:
+        return await self._db.get_columns(table_name)
+
+
+class BuildSqlEditorSchemaUseCase:
+    """Build schema data for the SQL editor autocomplete.
+
+    Gathers tables, views, procedures and column metadata
+    for CodeMirror autocomplete across each table/view/procedure.
+    """
+
+    def __init__(self, db: DatabasePort) -> None:
+        self._db = db
+
+    async def execute(self) -> SqlEditorSchema:
+        tables = await self._db.list_tables()
+        views = await self._db.list_views()
+        procedures = await self._db.list_procedures()
+
+        schema: dict[str, list[str]] = {}
+        for name in tables + views:
+            try:
+                cols = await self._db.get_columns(name)
+                schema[name] = [c.name for c in cols]
+            except Exception:
+                schema[name] = []
+        for name in procedures:
+            schema[name] = []
+
+        return SqlEditorSchema(
+            tables=tables, views=views, procedures=procedures, schema=schema
+        )

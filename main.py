@@ -18,11 +18,13 @@ from starlette.staticfiles import StaticFiles
 
 from src.application.use_cases import (
     AskAiUseCase,
+    BuildSqlEditorSchemaUseCase,
     ConnectUseCase,
     DeleteRowUseCase,
     ExecuteAiDmlUseCase,
     ExecuteProcedureUseCase,
     ExecuteQueryUseCase,
+    GetColumnsUseCase,
     InsertRowUseCase,
     ListObjectsUseCase,
     UpdateCellUseCase,
@@ -244,7 +246,8 @@ async def get(request: Request, table_name: str):
         return error_alert("Not connected. Please reconnect.")
 
     try:
-        columns = await repo.get_columns(table_name)
+        use_case = GetColumnsUseCase(repo)
+        columns = await use_case.execute(table_name)
         return insert_form(columns, table_name)
     except Exception as exc:
         return error_alert(f"Failed to load columns: {exc}")
@@ -281,7 +284,8 @@ async def post(request: Request, table_name: str):
     except Exception as exc:
         # Re-show form with entered values and error message
         try:
-            columns = await repo.get_columns(table_name)
+            use_case = GetColumnsUseCase(repo)
+            columns = await use_case.execute(table_name)
             return insert_form(columns, table_name, values=data, error=_clean_db_error(exc))
         except Exception:
             return error_alert(f"Insert failed: {_clean_db_error(exc)}")
@@ -374,24 +378,9 @@ async def get(request: Request):
         return error_alert("Not connected. Please reconnect.")
 
     try:
-        tables = await repo.list_tables()
-        views = await repo.list_views()
-        procs = await repo.list_procedures()
-
-        # Build schema dict for CodeMirror: {name: [columns]}
-        # Fetch columns for each table/view (for autocomplete)
-        schema: dict[str, list[str]] = {}
-        for name in tables + views:
-            try:
-                cols = await repo.get_columns(name)
-                schema[name] = [c.name for c in cols]
-            except Exception:
-                schema[name] = []
-        # Procedures have no columns but should appear in autocomplete
-        for name in procs:
-            schema[name] = []
-
-        return sql_editor(schema=schema)
+        use_case = BuildSqlEditorSchemaUseCase(repo)
+        schema_data = await use_case.execute()
+        return sql_editor(schema=schema_data.schema)
     except Exception as exc:
         return error_alert(f"Failed to load schema: {exc}")
     finally:
@@ -426,10 +415,6 @@ async def post(request: Request):
 @rt("/ai")
 async def get(request: Request):
     """Show the AI SQL Assistant page."""
-    repo = _get_repo(request)
-    if repo is None:
-        return error_alert("Not connected. Please reconnect.")
-    await repo.close()
     return ai_assistant()
 
 
