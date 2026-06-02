@@ -10,7 +10,51 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from src.application.ports import DatabasePort
-from src.domain.models import AiSettings, ConnectionParams, PagedData, ProcedureInfo, QueryResult
+from src.domain.models import (
+    AiSettings,
+    Column,
+    ConnectionParams,
+    PagedData,
+    ProcedureInfo,
+    QueryResult,
+)
+
+_AI_DML_ALLOWED_PREFIXES = ("INSERT", "UPDATE", "DELETE", "MERGE")
+
+
+def _strip_leading_sql_comments(sql: str) -> str:
+    lines = sql.lstrip().splitlines()
+    while lines and lines[0].lstrip().startswith("--"):
+        lines.pop(0)
+    return "\n".join(lines).lstrip()
+
+
+def _has_multiple_sql_statements(sql: str) -> bool:
+    stripped = sql.strip()
+    if not stripped:
+        return False
+
+    in_string = False
+    statement_separator_seen = False
+    idx = 0
+    while idx < len(stripped):
+        char = stripped[idx]
+        next_char = stripped[idx + 1] if idx + 1 < len(stripped) else ""
+
+        if char == "'":
+            if in_string and next_char == "'":
+                idx += 2
+                continue
+            in_string = not in_string
+        elif char == ";" and not in_string:
+            trailing = stripped[idx + 1 :].strip()
+            if trailing:
+                statement_separator_seen = True
+                break
+
+        idx += 1
+
+    return statement_separator_seen
 
 
 @dataclass
@@ -196,6 +240,13 @@ class ExecuteAiDmlUseCase:
         if not stripped:
             msg = "Empty SQL"
             raise ValueError(msg)
+        if _has_multiple_sql_statements(stripped):
+            msg = "AI DML execution accepts a single statement only"
+            raise ValueError(msg)
+        first_statement = _strip_leading_sql_comments(stripped).upper()
+        if not first_statement.startswith(_AI_DML_ALLOWED_PREFIXES):
+            msg = "Only INSERT, UPDATE, DELETE, or MERGE statements can be confirmed here"
+            raise ValueError(msg)
         return await self._db.execute_query(stripped)
 
 
@@ -244,6 +295,4 @@ class BuildSqlEditorSchemaUseCase:
         for name in procedures:
             schema[name] = []
 
-        return SqlEditorSchema(
-            tables=tables, views=views, procedures=procedures, schema=schema
-        )
+        return SqlEditorSchema(tables=tables, views=views, procedures=procedures, schema=schema)

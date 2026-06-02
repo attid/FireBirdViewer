@@ -8,6 +8,19 @@
 
 var editorView = null;
 
+function currentSql() {
+    return editorView ? editorView.state.doc.toString() : "";
+}
+
+function syncTextarea() {
+    var textarea = document.getElementById("sql-textarea");
+    var sql = currentSql();
+    if (textarea) {
+        textarea.value = sql;
+    }
+    return sql;
+}
+
 function initEditor() {
     var CM = window.__CM;
     if (!CM) return;
@@ -52,10 +65,7 @@ function initEditor() {
 
 function syncAndSubmit() {
     if (!editorView) return;
-    var textarea = document.getElementById("sql-textarea");
-    if (textarea) {
-        textarea.value = editorView.state.doc.toString();
-    }
+    syncTextarea();
     // Trigger HTMX submit on the form
     var form = document.getElementById("sql-editor-form");
     if (form) {
@@ -63,16 +73,16 @@ function syncAndSubmit() {
     }
 }
 
-// Sync editor content to hidden textarea before any HTMX submit
+// Sync editor content to hidden textarea and HTMX parameters before submit.
 document.addEventListener("htmx:configRequest", function (e) {
     var elt = e.detail.elt;
     if (!elt || !editorView) return;
     // Check if the triggering element is the form itself or inside it
     var form = elt.id === "sql-editor-form" ? elt : elt.closest("#sql-editor-form");
     if (form) {
-        var textarea = document.getElementById("sql-textarea");
-        if (textarea) {
-            textarea.value = editorView.state.doc.toString();
+        var sql = syncTextarea();
+        if (e.detail.parameters) {
+            e.detail.parameters.sql = sql;
         }
     }
 });

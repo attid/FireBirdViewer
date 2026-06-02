@@ -480,9 +480,18 @@ async def post(request: Request):
             except Exception:
                 history_json = None
 
+        ai_context = str(form.get("ai_context", "")).strip()
+        agent_question = question
+        if ai_context:
+            agent_question = (
+                "Context from the previous user-confirmed SQL execution:\n"
+                f"{ai_context}\n\n"
+                f"User question:\n{question}"
+            )
+
         uc = AskAiUseCase(repo, ask_fn=ask_agent)
         response_text, sql, is_dml, updated_history = await uc.execute(
-            question, settings, history_json=history_json
+            agent_question, settings, history_json=history_json
         )
 
         # Build assistant message
@@ -539,9 +548,11 @@ async def post(request: Request):
         # Clean raw DB errors
         if result.error:
             result = QueryResult(error=_clean_db_error(result.error))
-        return ai_dml_result(result)
+        return ai_dml_result(result, sql=sql)
     except Exception as exc:
-        return ai_dml_result(QueryResult(error=_clean_db_error(exc)))
+        return ai_dml_result(
+            QueryResult(error=_clean_db_error(exc)), sql=sql if "sql" in locals() else ""
+        )
     finally:
         await repo.close()
 

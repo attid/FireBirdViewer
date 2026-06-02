@@ -1,7 +1,6 @@
 """Shared helpers for all UI components."""
 
 import os
-import re
 from pathlib import Path
 
 from fasthtml.common import *
@@ -13,7 +12,7 @@ def _read_version() -> str:
     v = os.environ.get("APP_VERSION", "").strip()
     if v:
         return v
-    version_file = Path(__file__).resolve().parent.parent.parent / "VERSION"
+    version_file = Path(__file__).resolve().parents[3] / "VERSION"
     if version_file.exists():
         return version_file.read_text().strip()
     return "dev"

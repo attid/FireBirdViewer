@@ -26,7 +26,7 @@ Runs fully offline — no internet required at runtime.
 - **Backend:** Python 3.13, FastHTML, SQLAlchemy 2.0 async
 - **DB Driver:** [sqlalchemy-firebird-async](https://pypi.org/project/sqlalchemy-firebird-async/) with firebird-driver
 - **Frontend:** HTMX, DaisyUI/Tailwind CSS, CodeMirror 6 — all served locally
-- **Session:** Signed cookies (itsdangerous)
+- **Session:** Encrypted cookies (Fernet via cryptography)
 - **Build:** esbuild (JS bundle), Tailwind CLI (CSS), npm
 
 ## Getting Started
@@ -83,6 +83,6 @@ static/
   app.js             # Client JS (toasts, confirm modal, inline editing)
   codemirror-init.js # CodeMirror initialization and HTMX sync
   src/               # Build sources (Tailwind input, CodeMirror entry)
-tests/               # pytest unit tests (66 tests)
+tests/               # pytest unit tests
 Dockerfile           # Multi-stage: node (build) → python (runtime)
 ```

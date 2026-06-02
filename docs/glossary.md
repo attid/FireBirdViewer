@@ -16,7 +16,7 @@ Domain terms used consistently across code, docs, and conversations.
 | **Repository** | The infrastructure layer that executes SQL against Firebird |
 | **Port** | An abstract interface in `application/` that repository implements |
 | **Use-Case** | An application-layer function orchestrating a single user action |
-| **Session** | Signed cookie containing encrypted connection params |
+| **Session** | Encrypted cookie containing connection params |
 | **RDB$** | Prefix for Firebird system tables (metadata catalog) |
 | **RDB$DB_KEY** | Firebird's internal row identifier (pseudo-column) |
 | **FIRST N SKIP M** | Firebird's pagination syntax (equivalent to LIMIT/OFFSET) |

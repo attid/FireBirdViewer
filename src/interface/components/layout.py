@@ -2,7 +2,7 @@
 
 from fasthtml.common import *
 
-from ._shared import _APP_VERSION, _GITHUB_URL, _read_version
+from ._shared import _APP_VERSION, _GITHUB_URL
 
 
 def page_layout(*content, title: str = "FireBird Viewer"):
@@ -126,6 +126,16 @@ def dashboard_layout(tables: list[str], views: list[str], procedures: list[str],
                     ),
                     cls="mb-4",
                 ),
+                Div(
+                    Input(
+                        type="search",
+                        id="sidebar-filter",
+                        placeholder="Filter objects...",
+                        autocomplete="off",
+                        cls="input input-bordered input-sm w-full",
+                    ),
+                    cls="mb-3",
+                ),
                 _sidebar_section("Tables", tables, "table", icon="T"),
                 _sidebar_section("Views", views, "view", icon="V"),
                 _sidebar_section("Procedures", procedures, "proc", icon="P"),
@@ -161,7 +171,14 @@ def _sidebar_section(title: str, items: list[str], item_type: str, icon: str = "
     """Collapsible sidebar section with list of items."""
     if not items:
         return Div(
-            H3(f"{title} (0)", cls="font-semibold text-sm text-base-content/60 mb-1"),
+            H3(
+                f"{title} (0)",
+                data_section_summary="true",
+                cls="font-semibold text-sm text-base-content/60 mb-1",
+            ),
+            data_sidebar_section="true",
+            data_section_title=title,
+            data_section_total="0",
             cls="mb-4",
         )
 
@@ -180,6 +197,8 @@ def _sidebar_section(title: str, items: list[str], item_type: str, icon: str = "
                 hx_get=f"/object/{item_type}/{item_name}",
                 hx_target="#content-area",
                 hx_swap="innerHTML",
+                data_sidebar_item="true",
+                data_filter_name=item_name.lower(),
                 cls="flex items-center p-1.5 rounded hover:bg-base-200 cursor-pointer text-sm",
             )
         )
@@ -188,10 +207,14 @@ def _sidebar_section(title: str, items: list[str], item_type: str, icon: str = "
         Details(
             Summary(
                 f"{title} ({len(items)})",
+                data_section_summary="true",
                 cls="font-semibold text-sm cursor-pointer mb-1",
             ),
             Div(*item_links, cls="ml-2"),
             open=True,
         ),
+        data_sidebar_section="true",
+        data_section_title=title,
+        data_section_total=str(len(items)),
         cls="mb-4",
     )

@@ -25,7 +25,8 @@ Bug fixes start with a failing test.
 ## 5. Server-Rendered First
 
 UI is server-rendered HTML. HTMX handles interactivity.
-No client-side state management, no SPA router, no JS build step.
+No client-side state management and no SPA router. Build frontend vendor assets ahead of time;
+runtime must not depend on CDN access.
 JavaScript is used only for progressive enhancement (toast auto-dismiss, etc.).
 
 ## 6. Firebird-Specific Logic Is Isolated
@@ -35,7 +36,7 @@ lives exclusively in `src/repository/`. The rest of the app is DB-agnostic.
 
 ## 7. Stateless Server
 
-No server-side session storage. Connection params live in a signed cookie.
+No server-side session storage. Connection params live in an encrypted cookie.
 Each request is self-contained. This enables horizontal scaling.
 
 ## 8. Explicit Over Clever

@@ -278,7 +278,22 @@ def _ai_results_table(result: QueryResult) -> Div:
     )
 
 
-def ai_dml_result(result: QueryResult) -> Div:
+def _ai_context_payload(result: QueryResult, sql: str) -> Div:
+    """Hidden OOB context so the next AI turn can see execution results."""
+    if result.error:
+        text = f"Previous confirmed SQL failed.\nSQL:\n{sql}\nError:\n{result.error}"
+    elif result.columns:
+        text = f"Previous confirmed SQL returned {result.row_count} rows.\nSQL:\n{sql}"
+    else:
+        text = (
+            "Previous confirmed SQL executed successfully. "
+            f"Rows affected: {result.row_count}.\nSQL:\n{sql}"
+        )
+
+    return Div(text, id="ai-context-data", cls="hidden", hx_swap_oob="true")
+
+
+def ai_dml_result(result: QueryResult, sql: str = "") -> Div:
     """Render the result of a user-confirmed DML execution."""
     if result.error:
         return Div(
@@ -286,6 +301,7 @@ def ai_dml_result(result: QueryResult) -> Div:
                 Span(f"Error: {result.error}"),
                 cls="chat-bubble chat-bubble-error",
             ),
+            _ai_context_payload(result, sql),
             cls="chat chat-start",
         )
 
@@ -295,6 +311,7 @@ def ai_dml_result(result: QueryResult) -> Div:
                 _ai_results_table(result),
                 cls="chat-bubble chat-bubble-accent max-w-full",
             ),
+            _ai_context_payload(result, sql),
             cls="chat chat-start",
         )
 
@@ -303,5 +320,6 @@ def ai_dml_result(result: QueryResult) -> Div:
             Span(f"Executed successfully. Rows affected: {result.row_count}"),
             cls="chat-bubble chat-bubble-success",
         ),
+        _ai_context_payload(result, sql),
         cls="chat chat-start",
     )

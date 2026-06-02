@@ -57,6 +57,15 @@ def _quote(identifier: str) -> str:
     return f'"{escaped}"'
 
 
+def _clean_metadata_source(value: object) -> str:
+    """Return trimmed Firebird metadata source text."""
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace").strip()
+    return str(value).strip()
+
+
 class FirebirdRepository(DatabasePort):
     """Async repository for Firebird database operations."""
 
@@ -137,7 +146,10 @@ class FirebirdRepository(DatabasePort):
                     "  rf.RDB$NULL_FLAG, "
                     "  f.RDB$NULL_FLAG, "
                     "  rf.RDB$UPDATE_FLAG, "
-                    "  COALESCE(rc.PK_FLAG, 0) "
+                    "  COALESCE(rc.PK_FLAG, 0), "
+                    "  rf.RDB$DEFAULT_SOURCE, "
+                    "  f.RDB$DEFAULT_SOURCE, "
+                    "  f.RDB$COMPUTED_SOURCE "
                     "FROM RDB$RELATION_FIELDS rf "
                     "JOIN RDB$FIELDS f ON rf.RDB$FIELD_SOURCE = f.RDB$FIELD_NAME "
                     "LEFT JOIN ("
@@ -165,6 +177,9 @@ class FirebirdRepository(DatabasePort):
                     field_null_flag,
                     update_flag,
                     pk_flag,
+                    relation_default_source,
+                    field_default_source,
+                    computed_source,
                 ) = row
                 # NOT NULL can be set at relation level (rf) or domain level (f)
                 is_not_null = (rel_null_flag is not None and rel_null_flag == 1) or (
@@ -177,9 +192,20 @@ class FirebirdRepository(DatabasePort):
                         nullable=not is_not_null,
                         is_primary_key=bool(pk_flag),
                         is_computed=update_flag is not None and update_flag == 0,
+                        default_source=_clean_metadata_source(
+                            relation_default_source or field_default_source
+                        ),
+                        computed_source=_clean_metadata_source(computed_source),
                     )
                 )
             return columns
+
+    async def _get_column_map(self, table_name: str) -> dict[str, Column]:
+        columns = await self.get_columns(table_name)
+        if not columns:
+            msg = f"Unknown table or view: {table_name}"
+            raise ValueError(msg)
+        return {c.name: c for c in columns}
 
     async def get_table_data(
         self,
@@ -273,6 +299,16 @@ class FirebirdRepository(DatabasePort):
             msg = "No data to insert"
             raise ValueError(msg)
 
+        column_map = await self._get_column_map(table_name)
+        for col_name in data:
+            col = column_map.get(col_name)
+            if col is None:
+                msg = f"Unknown column: {col_name}"
+                raise ValueError(msg)
+            if col.is_computed:
+                msg = f"Cannot insert into computed column: {col_name}"
+                raise ValueError(msg)
+
         engine = await self._get_engine()
         quoted_table = _quote(table_name)
 
@@ -306,6 +342,15 @@ class FirebirdRepository(DatabasePort):
         self, table_name: str, db_key_hex: str, column_name: str, value: object
     ) -> None:
         """Update a single column value for a row identified by RDB$DB_KEY."""
+        column_map = await self._get_column_map(table_name)
+        col = column_map.get(column_name)
+        if col is None:
+            msg = f"Unknown column: {column_name}"
+            raise ValueError(msg)
+        if col.is_computed:
+            msg = f"Cannot update computed column: {column_name}"
+            raise ValueError(msg)
+
         engine = await self._get_engine()
         db_key_bytes = bytes.fromhex(db_key_hex)
         quoted_table = _quote(table_name)
@@ -332,7 +377,19 @@ class FirebirdRepository(DatabasePort):
 
         lines = []
         for col in columns:
+            if col.is_computed:
+                computed = col.computed_source
+                if computed.upper().startswith("COMPUTED BY"):
+                    computed = computed[len("COMPUTED BY") :].strip()
+                lines.append(f"    {_quote(col.name)} COMPUTED BY {computed}")
+                continue
+
             parts = [f"    {_quote(col.name)} {col.type_name}"]
+            if col.default_source:
+                default_source = col.default_source
+                if default_source.upper().startswith("DEFAULT"):
+                    default_source = default_source[len("DEFAULT") :].strip()
+                parts.append(f"DEFAULT {default_source}")
             if not col.nullable:
                 parts.append("NOT NULL")
             lines.append(" ".join(parts))

@@ -2,7 +2,7 @@
 
 from fasthtml.common import *
 
-from src.domain.models import Column, PagedData
+from src.domain.models import PagedData
 
 
 def data_table(data: PagedData, object_name: str, object_type: str):

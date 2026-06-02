@@ -288,6 +288,52 @@ document.addEventListener('htmx:afterSwap', function() {
 })();
 
 /* ------------------------------------------------------------------ */
+/* Sidebar object tree filter                                         */
+/* ------------------------------------------------------------------ */
+
+(function() {
+    function applySidebarFilter() {
+        var input = document.getElementById('sidebar-filter');
+        if (!input) return;
+
+        var query = input.value.trim().toLowerCase();
+        var sections = document.querySelectorAll('[data-sidebar-section="true"]');
+
+        sections.forEach(function(section) {
+            var visibleCount = 0;
+            var items = section.querySelectorAll('[data-sidebar-item="true"][data-filter-name]');
+
+            items.forEach(function(item) {
+                var name = item.dataset.filterName || '';
+                var visible = !query || name.indexOf(query) !== -1;
+                item.classList.toggle('hidden', !visible);
+                if (visible) visibleCount += 1;
+            });
+
+            var summary = section.querySelector('[data-section-summary="true"]');
+            var title = section.dataset.sectionTitle || '';
+            var total = parseInt(section.dataset.sectionTotal || '0', 10);
+            if (summary && title) {
+                var count = query ? visibleCount : total;
+                summary.textContent = title + ' (' + count + ')';
+                summary.setAttribute('data-section-visible-count', String(count));
+            }
+
+            section.classList.toggle('hidden', Boolean(query) && visibleCount === 0);
+        });
+    }
+
+    document.addEventListener('input', function(e) {
+        if (e.target && e.target.id === 'sidebar-filter') {
+            applySidebarFilter();
+        }
+    });
+
+    document.addEventListener('DOMContentLoaded', applySidebarFilter);
+    document.addEventListener('htmx:afterSwap', applySidebarFilter);
+})();
+
+/* ------------------------------------------------------------------ */
 /* AI Assistant: settings in localStorage + form interception          */
 /* ------------------------------------------------------------------ */
 
@@ -368,6 +414,11 @@ document.addEventListener('htmx:afterSwap', function() {
         if (historyEl && historyEl.textContent.trim()) {
             e.detail.parameters['ai_history'] = historyEl.textContent.trim();
         }
+
+        var contextEl = document.getElementById('ai-context-data');
+        if (contextEl && contextEl.textContent.trim()) {
+            e.detail.parameters['ai_context'] = contextEl.textContent.trim();
+        }
     });
 
     // Clear input after successful submission and scroll chat to bottom
@@ -405,6 +456,10 @@ document.addEventListener('htmx:afterSwap', function() {
         var history = document.getElementById('ai-history-data');
         if (history) {
             history.textContent = '';
+        }
+        var context = document.getElementById('ai-context-data');
+        if (context) {
+            context.textContent = '';
         }
     };
 

@@ -12,7 +12,7 @@
 - `main.py` is the composition root -- the ONLY file allowed to import from all layers.
 
 ## Tech stack
-- **FastHTML + HTMX + DaisyUI** (no separate frontend build)
+- **FastHTML + HTMX + DaisyUI** (vendor assets built ahead of time, no CDN at runtime)
 - **sqlalchemy-firebird-async** with `[firebird-driver]` extra -- mandatory, user's own package
 - **uv** for dependency management, **ruff** for linting/formatting, **pytest** for tests
 - Python 3.13
@@ -21,7 +21,7 @@
 - `from fasthtml.common import *` is idiomatic -- ruff F403/F405/F811 suppressed in pyproject.toml
 - `default_hdrs=False` in `fast_app()` -- use explicit `app.mount("/static", StaticFiles(...))` for static files
 - Function name = HTTP method (`def get`, `def post`, `def delete`). Multiple `get` with different `@rt()` paths is normal.
-- DaisyUI + Tailwind via CDN, HTMX attributes as `hx_*` kwargs
+- DaisyUI + Tailwind served from `static/vendor/`, HTMX attributes as `hx_*` kwargs
 
 ## Firebird specifics
 - Field names come padded with spaces -- always `.strip()` them
@@ -42,7 +42,7 @@ just arch-test # import boundary structural test
 ## UI/UX rules
 - No pre-filled passwords in forms
 - MVP first: connect, browse objects, view data, DDL, procedures
-- Delete works. Insert/update -- next features.
+- Delete, insert, and inline update work; keep destructive actions explicit and confirmed.
 
 ## Key files
 - `AI_FIRST.md` -- governing contract, READ FIRST

@@ -245,6 +245,55 @@ async def test_execute_ai_dml():
 
 
 @pytest.mark.asyncio
+async def test_execute_ai_dml_allows_update_and_delete():
+    db = FakeDatabasePort()
+    use_case = ExecuteAiDmlUseCase(db)
+
+    update_result = await use_case.execute("UPDATE USERS SET NAME = 'Bob' WHERE ID = 1")
+    delete_result = await use_case.execute("DELETE FROM USERS WHERE ID = 1")
+
+    assert update_result.row_count == 1
+    assert delete_result.row_count == 1
+
+
+@pytest.mark.asyncio
+async def test_execute_ai_dml_allows_semicolon_inside_string_literal():
+    db = FakeDatabasePort()
+    use_case = ExecuteAiDmlUseCase(db)
+
+    result = await use_case.execute("UPDATE USERS SET NAME = 'Alice; Bob' WHERE ID = 1")
+
+    assert result.row_count == 1
+
+
+@pytest.mark.asyncio
+async def test_execute_ai_dml_rejects_select():
+    db = FakeDatabasePort()
+    use_case = ExecuteAiDmlUseCase(db)
+
+    with pytest.raises(ValueError, match="Only INSERT, UPDATE, DELETE, or MERGE"):
+        await use_case.execute("SELECT * FROM USERS")
+
+
+@pytest.mark.asyncio
+async def test_execute_ai_dml_rejects_ddl():
+    db = FakeDatabasePort()
+    use_case = ExecuteAiDmlUseCase(db)
+
+    with pytest.raises(ValueError, match="Only INSERT, UPDATE, DELETE, or MERGE"):
+        await use_case.execute("DROP TABLE USERS")
+
+
+@pytest.mark.asyncio
+async def test_execute_ai_dml_rejects_multiple_statements():
+    db = FakeDatabasePort()
+    use_case = ExecuteAiDmlUseCase(db)
+
+    with pytest.raises(ValueError, match="single statement"):
+        await use_case.execute("UPDATE USERS SET NAME = 'Bob'; DELETE FROM USERS;")
+
+
+@pytest.mark.asyncio
 async def test_execute_ai_dml_empty_raises():
     db = FakeDatabasePort()
     use_case = ExecuteAiDmlUseCase(db)

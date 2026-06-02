@@ -3,7 +3,8 @@
 ## Overview
 
 FireBirdViewer is a web-based admin tool for Firebird SQL databases.
-Single Python process, no SPA, no build step. Server-rendered HTML with HTMX for interactivity.
+Single Python process, no SPA. Server-rendered HTML with HTMX for interactivity.
+Frontend vendor assets are built ahead of time and served locally at runtime.
 
 ## Layers and Dependency Direction
 
@@ -38,7 +39,7 @@ Implements ports from `application`. Contains all Firebird-specific SQL.
 FastHTML routes and UI components. Calls `application` use-cases.
 
 - `components.py` -- Reusable HTML components (forms, tables, sidebar)
-- `session.py` -- Signed cookie session management
+- `session.py` -- Encrypted cookie session management
 
 ### main.py (Composition Root)
 
@@ -65,7 +66,7 @@ Browser <- HTML response
 
 ## Session Management
 
-- Connection params serialized into signed cookie (itsdangerous `URLSafeTimedSerializer`)
+- Connection params serialized into encrypted Fernet cookie
 - 24h expiry, httponly, no client-side access to credentials
 - Each request rebuilds repository from cookie -- stateless server
 
