@@ -3,6 +3,7 @@
 from fasthtml.common import *
 
 from src.domain.models import Column
+from src.interface.paths import url_path
 
 
 def insert_form(
@@ -99,14 +100,14 @@ def insert_form(
                 Button("Insert", type="submit", cls="btn btn-primary btn-sm"),
                 A(
                     "Cancel",
-                    hx_get=f"/object/table/{table_name}",
+                    hx_get=url_path(f"/object/table/{table_name}"),
                     hx_target="#content-area",
                     hx_swap="innerHTML",
                     cls="btn btn-ghost btn-sm",
                 ),
                 cls="flex gap-2 mt-4",
             ),
-            hx_post=f"/object/table/{table_name}/row",
+            hx_post=url_path(f"/object/table/{table_name}/row"),
             hx_target="#content-area",
             hx_swap="innerHTML",
         ),

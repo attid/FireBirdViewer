@@ -58,6 +58,14 @@ docker run -p 5001:5001 firebird-viewer
 
 No internet required inside the container — all assets are baked in at build time.
 
+To serve the app under a sub-path:
+
+```bash
+docker run -p 5001:5001 -e APP_ROOT_PATH=/viewer firebird-viewer
+```
+
+Then open `http://localhost:5001/viewer`.
+
 ### Commands
 
 ```bash

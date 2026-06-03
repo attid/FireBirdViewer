@@ -6,6 +6,7 @@ from re import Pattern
 from fasthtml.common import *
 
 from src.domain.models import AiMessage, QueryResult
+from src.interface.paths import url_path
 
 
 def ai_assistant() -> Div:
@@ -61,7 +62,7 @@ def ai_assistant() -> Div:
                 cls="flex gap-2",
             ),
             id="ai-ask-form",
-            hx_post="/ai/ask",
+            hx_post=url_path("/ai/ask"),
             hx_target="#ai-chat-messages",
             hx_swap="beforeend",
             hx_indicator="#ai-loading",
@@ -215,7 +216,7 @@ def ai_assistant_message(msg: AiMessage) -> Div:
                         cls="btn btn-warning btn-sm",
                         hx_confirm="Execute this DML statement?",
                     ),
-                    hx_post="/ai/execute",
+                    hx_post=url_path("/ai/execute"),
                     hx_target="#ai-chat-messages",
                     hx_swap="beforeend",
                 ),

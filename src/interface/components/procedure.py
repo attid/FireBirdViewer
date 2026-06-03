@@ -3,6 +3,7 @@
 from fasthtml.common import *
 
 from src.domain.models import ProcedureInfo, QueryResult
+from src.interface.paths import url_path
 
 from .data import _object_tabs
 
@@ -71,7 +72,7 @@ def _procedure_execute_form(proc_name: str, input_params: list):
                     type="submit",
                     cls="btn btn-primary btn-sm",
                 ),
-                hx_post=f"/object/proc/{proc_name}/execute",
+                hx_post=url_path(f"/object/proc/{proc_name}/execute"),
                 hx_target="#proc-result",
                 hx_swap="innerHTML",
             ),
@@ -105,7 +106,7 @@ def _procedure_execute_form(proc_name: str, input_params: list):
                 Button("Execute", type="submit", cls="btn btn-primary btn-sm"),
                 cls="mt-3",
             ),
-            hx_post=f"/object/proc/{proc_name}/execute",
+            hx_post=url_path(f"/object/proc/{proc_name}/execute"),
             hx_target="#proc-result",
             hx_swap="innerHTML",
         ),

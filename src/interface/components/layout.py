@@ -2,6 +2,8 @@
 
 from fasthtml.common import *
 
+from src.interface.paths import url_path
+
 from ._shared import _APP_VERSION, _GITHUB_URL
 
 
@@ -36,7 +38,7 @@ def _navbar(title: str):
     """Top navigation bar."""
     return Div(
         Div(
-            A(title, cls="text-xl font-bold", href="/"),
+            A(title, cls="text-xl font-bold", href=url_path("/")),
             cls="navbar bg-base-300 rounded-box mb-4 shadow",
         ),
         cls="container mx-auto max-w-7xl px-4 pt-4",
@@ -68,7 +70,7 @@ def connect_form(database: str = "", user: str = ""):
                     cls="form-control mb-4",
                 ),
                 Button("Connect", type="submit", cls="btn btn-primary w-full mt-2"),
-                hx_post="/connect",
+                hx_post=url_path("/connect"),
                 hx_target="body",
                 hx_swap="innerHTML",
             ),
@@ -106,7 +108,7 @@ def dashboard_layout(tables: list[str], views: list[str], procedures: list[str],
                     A(
                         Span("SQL", cls="badge badge-sm badge-info mr-2"),
                         Span("SQL Editor"),
-                        hx_get="/sql-editor",
+                        hx_get=url_path("/sql-editor"),
                         hx_target="#content-area",
                         hx_swap="innerHTML",
                         cls="flex items-center p-2 rounded hover:bg-base-200"
@@ -118,7 +120,7 @@ def dashboard_layout(tables: list[str], views: list[str], procedures: list[str],
                     A(
                         Span("AI", cls="badge badge-sm badge-warning mr-2"),
                         Span("AI Assistant"),
-                        hx_get="/ai",
+                        hx_get=url_path("/ai"),
                         hx_target="#content-area",
                         hx_swap="innerHTML",
                         cls="flex items-center p-2 rounded hover:bg-base-200"
@@ -142,7 +144,7 @@ def dashboard_layout(tables: list[str], views: list[str], procedures: list[str],
                 Div(
                     A(
                         "Disconnect",
-                        href="/disconnect",
+                        href=url_path("/disconnect"),
                         cls="btn btn-outline btn-error btn-sm w-full mt-4",
                     ),
                 ),
@@ -194,7 +196,7 @@ def _sidebar_section(title: str, items: list[str], item_type: str, icon: str = "
             A(
                 Span(icon, cls=f"badge badge-sm {badge_cls} mr-2"),
                 Span(item_name, cls="truncate"),
-                hx_get=f"/object/{item_type}/{item_name}",
+                hx_get=url_path(f"/object/{item_type}/{item_name}"),
                 hx_target="#content-area",
                 hx_swap="innerHTML",
                 data_sidebar_item="true",

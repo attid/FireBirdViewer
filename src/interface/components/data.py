@@ -3,6 +3,7 @@
 from fasthtml.common import *
 
 from src.domain.models import PagedData
+from src.interface.paths import url_path
 
 
 def data_table(data: PagedData, object_name: str, object_type: str):
@@ -30,7 +31,9 @@ def data_table(data: PagedData, object_name: str, object_type: str):
                     Span(col.name),
                     pk_badge,
                     Span(sort_icon),
-                    hx_get=f"/object/{object_type}/{object_name}?sort={col.name}&page={data.page}",
+                    hx_get=url_path(
+                        f"/object/{object_type}/{object_name}?sort={col.name}&page={data.page}"
+                    ),
                     hx_target="#content-area",
                     hx_swap="innerHTML",
                     cls="cursor-pointer hover:underline flex items-center gap-1",
@@ -48,7 +51,7 @@ def data_table(data: PagedData, object_name: str, object_type: str):
                 Td(
                     Button(
                         "x",
-                        hx_delete=f"/object/table/{object_name}/row/{db_key}",
+                        hx_delete=url_path(f"/object/table/{object_name}/row/{db_key}"),
                         hx_target="#content-area",
                         hx_swap="innerHTML",
                         hx_confirm=f"Delete this row from {object_name}?",
@@ -85,7 +88,7 @@ def data_table(data: PagedData, object_name: str, object_type: str):
     if can_delete:
         add_row_btn = A(
             "+ Add Row",
-            hx_get=f"/object/table/{object_name}/insert-form",
+            hx_get=url_path(f"/object/table/{object_name}/insert-form"),
             hx_target="#content-area",
             hx_swap="innerHTML",
             cls="btn btn-primary btn-xs",
@@ -120,7 +123,7 @@ def _pagination_controls(current_page: int, total_pages: int, object_name: str, 
         buttons.append(
             A(
                 "Prev",
-                hx_get=f"/object/{object_type}/{object_name}?page={current_page - 1}",
+                hx_get=url_path(f"/object/{object_type}/{object_name}?page={current_page - 1}"),
                 hx_target="#content-area",
                 hx_swap="innerHTML",
                 cls="btn btn-sm btn-outline",
@@ -133,7 +136,7 @@ def _pagination_controls(current_page: int, total_pages: int, object_name: str, 
         buttons.append(
             A(
                 "Next",
-                hx_get=f"/object/{object_type}/{object_name}?page={current_page + 1}",
+                hx_get=url_path(f"/object/{object_type}/{object_name}?page={current_page + 1}"),
                 hx_target="#content-area",
                 hx_swap="innerHTML",
                 cls="btn btn-sm btn-outline",
@@ -155,7 +158,7 @@ def _object_tabs(object_name: str, object_type: str, active_tab: str = "data"):
         tabs.append(
             A(
                 tab_label,
-                hx_get=f"/object/{object_type}/{object_name}?tab={tab_id}",
+                hx_get=url_path(f"/object/{object_type}/{object_name}?tab={tab_id}"),
                 hx_target="#content-area",
                 hx_swap="innerHTML",
                 cls=f"tab {active_cls}",

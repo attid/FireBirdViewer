@@ -14,6 +14,7 @@ from pathlib import Path
 from fasthtml.common import *
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
+from starlette.routing import Mount
 from starlette.staticfiles import StaticFiles
 
 from src.application.use_cases import (
@@ -48,6 +49,7 @@ from src.interface.components.layout import (
 )
 from src.interface.components.procedure import error_alert, procedure_result, procedure_view
 from src.interface.components.sql import query_result, sql_editor
+from src.interface.paths import root_path, url_path
 from src.interface.session import (
     create_session_token,
     get_cookie_name,
@@ -71,24 +73,25 @@ def _read_version() -> str:
 
 
 APP_VERSION = _read_version()
+APP_ROOT_PATH = root_path()
 
 app, rt = fast_app(
     pico=False,
     default_hdrs=False,
+    static_path=None,
+    routes=(Mount(url_path("/static"), StaticFiles(directory="static"), name="static"),),
     hdrs=(
         Meta(charset="utf-8"),
         Meta(name="viewport", content="width=device-width, initial-scale=1"),
         Title("FireBird Viewer"),
-        Link(rel="icon", href="/static/favicon.ico", type="image/x-icon"),
-        Link(href="/static/vendor/styles.css", rel="stylesheet"),
-        Script(src="/static/vendor/htmx.min.js"),
-        Script(src="/static/vendor/codemirror.bundle.js"),
-        Script(src="/static/app.js", defer=True),
-        Script(src="/static/codemirror-init.js", defer=True),
+        Link(rel="icon", href=url_path("/static/favicon.ico"), type="image/x-icon"),
+        Link(href=url_path("/static/vendor/styles.css"), rel="stylesheet"),
+        Script(src=url_path("/static/vendor/htmx.min.js")),
+        Script(src=url_path("/static/vendor/codemirror.bundle.js")),
+        Script(src=url_path("/static/app.js"), defer=True),
+        Script(src=url_path("/static/codemirror-init.js"), defer=True),
     ),
 )
-
-app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # ---------------------------------------------------------------------------
@@ -136,16 +139,16 @@ def _get_repo(request: Request) -> FirebirdRepository | None:
 # ---------------------------------------------------------------------------
 
 
-@rt("/")
+@rt(url_path("/"))
 async def get(request: Request):
     """Show connect form or redirect to dashboard if already authenticated."""
     params = _get_params(request)
     if params:
-        return RedirectResponse("/dashboard", status_code=303)
+        return RedirectResponse(url_path("/dashboard"), status_code=303)
     return Title("FireBird Viewer"), page_layout(connect_form())
 
 
-@rt("/connect")
+@rt(url_path("/connect"))
 async def post(request: Request, database: str, user: str, password: str):
     """Handle connection form submission."""
     params = ConnectionParams(database=database, user=user, password=password)
@@ -165,17 +168,17 @@ async def post(request: Request, database: str, user: str, password: str):
         )
 
     token = create_session_token(params)
-    response = RedirectResponse("/dashboard", status_code=303)
+    response = RedirectResponse(url_path("/dashboard"), status_code=303)
     response.set_cookie(get_cookie_name(), token, httponly=True, max_age=86400)
     return response
 
 
-@rt("/dashboard")
+@rt(url_path("/dashboard"))
 async def get(request: Request):
     """Main dashboard page with sidebar tree."""
     repo = _get_repo(request)
     if repo is None:
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse(url_path("/"), status_code=303)
 
     try:
         use_case = ListObjectsUseCase(repo)
@@ -197,7 +200,7 @@ async def get(request: Request):
     )
 
 
-@rt("/object/{obj_type}/{obj_name}")
+@rt(url_path("/object/{obj_type}/{obj_name}"))
 async def get(
     request: Request,
     obj_type: str,
@@ -238,7 +241,7 @@ async def get(
         await repo.close()
 
 
-@rt("/object/table/{table_name}/insert-form")
+@rt(url_path("/object/table/{table_name}/insert-form"))
 async def get(request: Request, table_name: str):
     """Show insert-row form with fields based on column metadata."""
     repo = _get_repo(request)
@@ -255,7 +258,7 @@ async def get(request: Request, table_name: str):
         await repo.close()
 
 
-@rt("/object/table/{table_name}/row")
+@rt(url_path("/object/table/{table_name}/row"))
 async def post(request: Request, table_name: str):
     """Insert a new row into a table from form data."""
     repo = _get_repo(request)
@@ -293,7 +296,7 @@ async def post(request: Request, table_name: str):
         await repo.close()
 
 
-@rt("/object/table/{table_name}/row/{db_key}")
+@rt(url_path("/object/table/{table_name}/row/{db_key}"))
 async def delete(request: Request, table_name: str, db_key: str):
     """Delete a row from a table by its RDB$DB_KEY (hex-encoded)."""
     repo = _get_repo(request)
@@ -316,7 +319,7 @@ async def delete(request: Request, table_name: str, db_key: str):
         await repo.close()
 
 
-@rt("/object/table/{table_name}/row/{db_key}")
+@rt(url_path("/object/table/{table_name}/row/{db_key}"))
 async def put(request: Request, table_name: str, db_key: str):
     """Update a single cell value (inline editing)."""
     repo = _get_repo(request)
@@ -343,7 +346,7 @@ async def put(request: Request, table_name: str, db_key: str):
         await repo.close()
 
 
-@rt("/object/proc/{proc_name}/execute")
+@rt(url_path("/object/proc/{proc_name}/execute"))
 async def post(request: Request, proc_name: str):
     """Execute a stored procedure with parameters from form data."""
     repo = _get_repo(request)
@@ -370,7 +373,7 @@ async def post(request: Request, proc_name: str):
         await repo.close()
 
 
-@rt("/sql-editor")
+@rt(url_path("/sql-editor"))
 async def get(request: Request):
     """Show the SQL editor panel with schema autocomplete data."""
     repo = _get_repo(request)
@@ -387,7 +390,7 @@ async def get(request: Request):
         await repo.close()
 
 
-@rt("/sql-editor/execute")
+@rt(url_path("/sql-editor/execute"))
 async def post(request: Request):
     """Execute an arbitrary SQL query from the editor."""
     repo = _get_repo(request)
@@ -412,13 +415,13 @@ async def post(request: Request):
         await repo.close()
 
 
-@rt("/ai")
+@rt(url_path("/ai"))
 async def get(request: Request):
     """Show the AI SQL Assistant page."""
     return ai_assistant()
 
 
-@rt("/ai/defaults")
+@rt(url_path("/ai/defaults"))
 async def get(request: Request):
     """Return non-secret AI defaults from env vars.
 
@@ -435,7 +438,7 @@ async def get(request: Request):
     )
 
 
-@rt("/ai/ask")
+@rt(url_path("/ai/ask"))
 async def post(request: Request):
     """Handle an AI assistant question."""
     repo = _get_repo(request)
@@ -530,7 +533,7 @@ async def post(request: Request):
         await repo.close()
 
 
-@rt("/ai/execute")
+@rt(url_path("/ai/execute"))
 async def post(request: Request):
     """Execute a user-confirmed DML statement from the AI assistant."""
     repo = _get_repo(request)
@@ -557,13 +560,13 @@ async def post(request: Request):
         await repo.close()
 
 
-@rt("/disconnect")
+@rt(url_path("/disconnect"))
 async def get(request: Request):
     """Clear session and redirect to connect page."""
-    response = RedirectResponse("/", status_code=303)
+    response = RedirectResponse(url_path("/"), status_code=303)
     response.delete_cookie(get_cookie_name())
     return response
 
 
-log.info("FireBird Viewer v%s starting", APP_VERSION)
+log.info("FireBird Viewer v%s starting at %s", APP_VERSION, APP_ROOT_PATH or "/")
 serve()

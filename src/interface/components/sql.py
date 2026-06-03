@@ -5,6 +5,7 @@ import json
 from fasthtml.common import *
 
 from src.domain.models import QueryResult
+from src.interface.paths import url_path
 
 
 def sql_editor(schema: dict[str, list[str]] | None = None):
@@ -34,7 +35,7 @@ def sql_editor(schema: dict[str, list[str]] | None = None):
                 Span("Ctrl+Enter", cls="text-xs text-base-content/50 self-center ml-2"),
                 cls="flex gap-2",
             ),
-            hx_post="/sql-editor/execute",
+            hx_post=url_path("/sql-editor/execute"),
             hx_target="#query-result",
             hx_swap="innerHTML",
             id="sql-editor-form",
