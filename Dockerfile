@@ -51,4 +51,4 @@ COPY --from=frontend /build/static/vendor/ static/vendor/
 
 EXPOSE 5001
 
-CMD ["uv", "run", "python", "main.py"]
+CMD ["/app/.venv/bin/python", "main.py"]
