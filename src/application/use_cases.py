@@ -108,6 +108,7 @@ class ViewTableDataUseCase:
         page_size: int = 50,
         sort_column: str | None = None,
         sort_dir: str = "ASC",
+        filter_text: str = "",
     ) -> PagedData:
         return await self._db.get_table_data(
             table_name,
@@ -115,6 +116,7 @@ class ViewTableDataUseCase:
             page_size=page_size,
             sort_column=sort_column,
             sort_dir=sort_dir,
+            filter_text=filter_text,
         )
 
 

@@ -1,5 +1,13 @@
 /* FireBird Viewer - client-side utilities */
 
+function appUrl(path) {
+    var rootMeta = document.querySelector('meta[name="app-root-path"]');
+    var root = rootMeta ? rootMeta.getAttribute('content') || '' : '';
+    if (!path.startsWith('/')) path = '/' + path;
+    if (!root || root === '/') return path;
+    return root.replace(/\/+$/, '') + path;
+}
+
 /* Auto-dismiss toast notifications after 4 seconds */
 document.addEventListener('htmx:afterSwap', function() {
     const container = document.getElementById('toast-container');
@@ -113,7 +121,7 @@ document.addEventListener('htmx:afterSwap', function() {
             cell.textContent = '...';
             cell.classList.add('opacity-50');
 
-            fetch(`/object/table/${encodeURIComponent(tableName)}/row/${encodeURIComponent(dbKey)}`, {
+            fetch(appUrl(`/object/table/${encodeURIComponent(tableName)}/row/${encodeURIComponent(dbKey)}`), {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ column: column, value: newValue }),
@@ -354,7 +362,7 @@ document.addEventListener('htmx:afterSwap', function() {
     function loadDefaultsIfEmpty() {
         var existing = getAiSettings();
         if (existing.base_url) return; // already configured
-        fetch('/ai/defaults')
+        fetch(appUrl('/ai/defaults'))
             .then(function(r) { return r.json(); })
             .then(function(defaults) {
                 if (defaults.base_url) {

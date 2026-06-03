@@ -83,6 +83,9 @@ class TestPagedData:
         assert data.total_count == 0
         assert data.page == 0
         assert data.page_size == 50
+        assert data.sort_column == ""
+        assert data.sort_dir == "ASC"
+        assert data.filter_text == ""
 
 
 class TestAiSettings:

@@ -50,13 +50,25 @@ class FakeDatabasePort(DatabasePort):
         page_size: int = 50,
         sort_column: str | None = None,
         sort_dir: str = "ASC",
+        filter_text: str = "",
     ) -> PagedData:
+        self._last_table_data_args = {
+            "table_name": table_name,
+            "page": page,
+            "page_size": page_size,
+            "sort_column": sort_column,
+            "sort_dir": sort_dir,
+            "filter_text": filter_text,
+        }
         return PagedData(
             columns=[Column(name="ID", type_name="INTEGER")],
             rows=[{"ID": 1}, {"ID": 2}],
             total_count=2,
             page=page,
             page_size=page_size,
+            sort_column=sort_column or "",
+            sort_dir=sort_dir,
+            filter_text=filter_text,
         )
 
     async def get_ddl(self, table_name: str) -> str:
@@ -129,6 +141,17 @@ async def test_view_table_data_passes_sort():
     # Just verify it doesn't crash -- actual sort logic is in repository
     result = await use_case.execute("USERS", sort_column="ID", sort_dir="DESC")
     assert result.total_count == 2
+
+
+@pytest.mark.asyncio
+async def test_view_table_data_passes_filter():
+    db = FakeDatabasePort()
+    use_case = ViewTableDataUseCase(db)
+
+    result = await use_case.execute("USERS", filter_text="alice")
+
+    assert result.filter_text == "alice"
+    assert db._last_table_data_args["filter_text"] == "alice"
 
 
 @pytest.mark.asyncio

@@ -101,6 +101,9 @@ class PagedData(BaseModel):
     total_count: int = 0
     page: int = 0
     page_size: int = 50
+    sort_column: str = ""
+    sort_dir: str = "ASC"
+    filter_text: str = ""
 
 
 class AiSettings(BaseModel):

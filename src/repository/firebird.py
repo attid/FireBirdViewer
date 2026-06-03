@@ -214,6 +214,7 @@ class FirebirdRepository(DatabasePort):
         page_size: int = 50,
         sort_column: str | None = None,
         sort_dir: str = "ASC",
+        filter_text: str = "",
     ) -> PagedData:
         """Get paginated data from a table or view."""
         engine = await self._get_engine()
@@ -231,19 +232,32 @@ class FirebirdRepository(DatabasePort):
         if sort_column:
             order_clause = f" ORDER BY {_quote(sort_column)} {sort_dir.upper()}"
 
+        filter_text = filter_text.strip()
+        params: dict[str, object] = {}
+        where_clause = ""
+        if filter_text:
+            searchable_cols = [c for c in columns if c.type_name.upper() != "BLOB"]
+            if searchable_cols:
+                params["filter_text"] = filter_text
+                predicates = [
+                    f"CAST(t.{_quote(c.name)} AS VARCHAR(1024)) CONTAINING :filter_text"
+                    for c in searchable_cols
+                ]
+                where_clause = " WHERE " + " OR ".join(predicates)
+
         offset = page * page_size
         # Include RDB$DB_KEY as first column for row identification (used by delete/update)
         query = (
             f"SELECT FIRST {page_size} SKIP {offset} "
-            f"t.RDB$DB_KEY, t.* FROM {quoted_table} t{order_clause}"
+            f"t.RDB$DB_KEY, t.* FROM {quoted_table} t{where_clause}{order_clause}"
         )
-        count_query = f"SELECT COUNT(*) FROM {quoted_table}"
+        count_query = f"SELECT COUNT(*) FROM {quoted_table} t{where_clause}"
 
         async with engine.connect() as conn:
-            result = await conn.execute(text(query))
+            result = await conn.execute(text(query), params)
             rows_raw = result.fetchall()
 
-            count_result = await conn.execute(text(count_query))
+            count_result = await conn.execute(text(count_query), params)
             total = count_result.scalar() or 0
 
         rows = []
@@ -271,6 +285,9 @@ class FirebirdRepository(DatabasePort):
             total_count=total,
             page=page,
             page_size=page_size,
+            sort_column=sort_column or "",
+            sort_dir=sort_dir.upper(),
+            filter_text=filter_text,
         )
 
     async def delete_row(self, table_name: str, db_key_hex: str) -> int:

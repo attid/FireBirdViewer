@@ -1,5 +1,7 @@
 """Data display components: tables, pagination, DDL views."""
 
+from urllib.parse import urlencode
+
 from fasthtml.common import *
 
 from src.domain.models import PagedData
@@ -31,8 +33,12 @@ def data_table(data: PagedData, object_name: str, object_type: str):
                     Span(col.name),
                     pk_badge,
                     Span(sort_icon),
-                    hx_get=url_path(
-                        f"/object/{object_type}/{object_name}?sort={col.name}&page={data.page}"
+                    hx_get=_object_url(
+                        object_type,
+                        object_name,
+                        sort=col.name,
+                        page=data.page,
+                        filter_text=data.filter_text,
                     ),
                     hx_target="#content-area",
                     hx_swap="innerHTML",
@@ -82,7 +88,8 @@ def data_table(data: PagedData, object_name: str, object_type: str):
         body_rows.append(Tr(*cells, cls="hover"))
 
     total_pages = max(1, (data.total_count + data.page_size - 1) // data.page_size)
-    pagination = _pagination_controls(data.page, total_pages, object_name, object_type)
+    pagination = _pagination_controls(data, total_pages, object_name, object_type)
+    table_filter = _table_filter(object_name, object_type, data.filter_text)
 
     add_row_btn = ""
     if can_delete:
@@ -102,6 +109,7 @@ def data_table(data: PagedData, object_name: str, object_type: str):
             cls="flex items-center gap-3 mb-3",
         ),
         _object_tabs(object_name, object_type, active_tab="data"),
+        table_filter,
         Div(
             Table(
                 Thead(Tr(*header_cells)),
@@ -115,15 +123,93 @@ def data_table(data: PagedData, object_name: str, object_type: str):
     )
 
 
-def _pagination_controls(current_page: int, total_pages: int, object_name: str, object_type: str):
+def _object_url(
+    object_type: str,
+    object_name: str,
+    *,
+    page: int | None = None,
+    sort: str = "",
+    filter_text: str = "",
+    tab: str = "",
+):
+    """Build a root-path aware object URL with optional query parameters."""
+    params: dict[str, str | int] = {}
+    if page is not None:
+        params["page"] = page
+    if sort:
+        params["sort"] = sort
+    if filter_text:
+        params["filter"] = filter_text
+    if tab:
+        params["tab"] = tab
+
+    path = f"/object/{object_type}/{object_name}"
+    if params:
+        path += "?" + urlencode(params)
+    return url_path(path)
+
+
+def _table_filter(object_name: str, object_type: str, filter_text: str):
+    """Filter form for table/view rows."""
+    if object_type not in ("table", "view"):
+        return ""
+
+    clear_link = ""
+    if filter_text:
+        clear_link = A(
+            "Clear",
+            hx_get=_object_url(object_type, object_name),
+            hx_target="#content-area",
+            hx_swap="innerHTML",
+            cls="btn btn-ghost btn-sm",
+        )
+
+    return Form(
+        Input(
+            type="search",
+            name="filter",
+            value=filter_text,
+            placeholder="Filter rows...",
+            autocomplete="off",
+            cls="input input-bordered input-sm w-full max-w-xs",
+        ),
+        Button("Filter", type="submit", cls="btn btn-primary btn-sm"),
+        clear_link,
+        hx_get=_object_url(object_type, object_name),
+        hx_target="#content-area",
+        hx_swap="innerHTML",
+        cls="flex flex-wrap items-center gap-2 mb-3",
+    )
+
+
+def _pagination_controls(data: PagedData, total_pages: int, object_name: str, object_type: str):
     """Pagination buttons."""
     buttons = []
+    current_page = data.page
+
+    def page_url(page: int) -> str:
+        return _object_url(
+            object_type,
+            object_name,
+            page=page,
+            sort=data.sort_column,
+            filter_text=data.filter_text,
+        )
 
     if current_page > 0:
         buttons.append(
             A(
+                "First",
+                hx_get=page_url(0),
+                hx_target="#content-area",
+                hx_swap="innerHTML",
+                cls="btn btn-sm btn-outline",
+            )
+        )
+        buttons.append(
+            A(
                 "Prev",
-                hx_get=url_path(f"/object/{object_type}/{object_name}?page={current_page - 1}"),
+                hx_get=page_url(current_page - 1),
                 hx_target="#content-area",
                 hx_swap="innerHTML",
                 cls="btn btn-sm btn-outline",
@@ -136,7 +222,16 @@ def _pagination_controls(current_page: int, total_pages: int, object_name: str, 
         buttons.append(
             A(
                 "Next",
-                hx_get=url_path(f"/object/{object_type}/{object_name}?page={current_page + 1}"),
+                hx_get=page_url(current_page + 1),
+                hx_target="#content-area",
+                hx_swap="innerHTML",
+                cls="btn btn-sm btn-outline",
+            )
+        )
+        buttons.append(
+            A(
+                "Last",
+                hx_get=page_url(total_pages - 1),
                 hx_target="#content-area",
                 hx_swap="innerHTML",
                 cls="btn btn-sm btn-outline",
@@ -158,7 +253,7 @@ def _object_tabs(object_name: str, object_type: str, active_tab: str = "data"):
         tabs.append(
             A(
                 tab_label,
-                hx_get=url_path(f"/object/{object_type}/{object_name}?tab={tab_id}"),
+                hx_get=_object_url(object_type, object_name, tab=tab_id),
                 hx_target="#content-area",
                 hx_swap="innerHTML",
                 cls=f"tab {active_cls}",

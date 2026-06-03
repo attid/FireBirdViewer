@@ -1,5 +1,8 @@
 """Tests for sub-path URL generation."""
 
+import importlib
+from pathlib import Path
+
 from src.domain.models import AiMessage, Column, PagedData
 from src.interface.components.ai import ai_assistant, ai_assistant_message
 from src.interface.components.crud import insert_form
@@ -44,6 +47,25 @@ def test_components_prefix_htmx_and_navigation_urls(monkeypatch):
     assert 'hx-post="/viewer/ai/ask"' in ai_html
 
 
+def test_page_exposes_app_root_path_meta(monkeypatch):
+    monkeypatch.setenv("APP_ROOT_PATH", "/viewer")
+
+    import fasthtml.common
+
+    original_serve = fasthtml.common.serve
+    fasthtml.common.serve = lambda *args, **kwargs: None
+    try:
+        import main
+
+        main = importlib.reload(main)
+        head_html = "".join(str(header) for header in main.app.hdrs)
+    finally:
+        fasthtml.common.serve = original_serve
+
+    assert 'name="app-root-path"' in head_html
+    assert 'content="/viewer"' in head_html
+
+
 def test_object_components_prefix_action_urls(monkeypatch):
     monkeypatch.setenv("APP_ROOT_PATH", "/db")
 
@@ -62,8 +84,43 @@ def test_object_components_prefix_action_urls(monkeypatch):
         )
     )
 
-    assert 'hx-get="/db/object/table/EMPLOYEE?sort=ID&amp;page=0"' in table_html
+    assert 'hx-get="/db/object/table/EMPLOYEE?page=0&amp;sort=ID"' in table_html
     assert 'hx-delete="/db/object/table/EMPLOYEE/row/abc"' in table_html
     assert 'hx-get="/db/object/table/EMPLOYEE/insert-form"' in table_html
     assert 'hx-post="/db/object/table/EMPLOYEE/row"' in insert_html
     assert 'hx-post="/db/ai/execute"' in ai_msg_html
+
+
+def test_table_filter_and_pagination_preserve_state(monkeypatch):
+    monkeypatch.setenv("APP_ROOT_PATH", "/viewer")
+
+    data = PagedData(
+        columns=[Column(name="NAME", type_name="VARCHAR(50)")],
+        rows=[{"NAME": "Alice", "_db_key": "abc"}],
+        total_count=120,
+        page=1,
+        page_size=50,
+        sort_column="NAME",
+        filter_text="ali",
+    )
+
+    html = str(data_table(data, "EMPLOYEE", "table"))
+
+    assert 'name="filter"' in html
+    assert 'value="ali"' in html
+    assert 'hx-get="/viewer/object/table/EMPLOYEE"' in html
+    assert "First" in html
+    assert "Last" in html
+    assert "Page 2 of 3" in html
+    assert 'hx-get="/viewer/object/table/EMPLOYEE?page=0&amp;sort=NAME&amp;filter=ali"' in html
+    assert 'hx-get="/viewer/object/table/EMPLOYEE?page=2&amp;sort=NAME&amp;filter=ali"' in html
+
+
+def test_manual_fetches_use_app_url_helper():
+    js = Path("static/app.js").read_text(encoding="utf-8")
+
+    assert "function appUrl(path)" in js
+    assert "fetch(appUrl(`/object/table/" in js
+    assert "fetch(appUrl('/ai/defaults'))" in js
+    assert "fetch(`/object/table/" not in js
+    assert "fetch('/ai/defaults')" not in js

@@ -39,6 +39,7 @@ class DatabasePort(ABC):
         page_size: int = 50,
         sort_column: str | None = None,
         sort_dir: str = "ASC",
+        filter_text: str = "",
     ) -> PagedData: ...
 
     @abstractmethod

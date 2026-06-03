@@ -83,6 +83,7 @@ app, rt = fast_app(
     hdrs=(
         Meta(charset="utf-8"),
         Meta(name="viewport", content="width=device-width, initial-scale=1"),
+        Meta(name="app-root-path", content=APP_ROOT_PATH),
         Title("FireBird Viewer"),
         Link(rel="icon", href=url_path("/static/favicon.ico"), type="image/x-icon"),
         Link(href=url_path("/static/vendor/styles.css"), rel="stylesheet"),
@@ -208,6 +209,7 @@ async def get(
     page: int = 0,
     sort: str = "",
     tab: str = "data",
+    filter: str = "",
 ):
     """Load object data, DDL, or procedure source."""
     repo = _get_repo(request)
@@ -233,6 +235,7 @@ async def get(
             page=page,
             page_size=50,
             sort_column=sort_column,
+            filter_text=filter,
         )
         return data_table(data, obj_name, obj_type)
     except Exception as exc:
