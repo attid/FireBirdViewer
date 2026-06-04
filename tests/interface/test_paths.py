@@ -5,7 +5,7 @@ from pathlib import Path
 
 from src.domain.models import AiMessage, Column, PagedData
 from src.interface.components.ai import ai_assistant, ai_assistant_message
-from src.interface.components.crud import insert_form
+from src.interface.components.crud import insert_form, row_edit_form
 from src.interface.components.data import data_table
 from src.interface.components.layout import connect_form, dashboard_layout
 from src.interface.components.sql import sql_editor
@@ -86,6 +86,7 @@ def test_object_components_prefix_action_urls(monkeypatch):
 
     assert 'hx-get="/db/object/table/EMPLOYEE?page=0&amp;sort=ID"' in table_html
     assert 'hx-delete="/db/object/table/EMPLOYEE/row/abc"' in table_html
+    assert 'hx-get="/db/object/table/EMPLOYEE/row/abc/edit-form"' in table_html
     assert 'hx-get="/db/object/table/EMPLOYEE/insert-form"' in table_html
     assert 'hx-post="/db/object/table/EMPLOYEE/row"' in insert_html
     assert 'hx-post="/db/ai/execute"' in ai_msg_html
@@ -116,6 +117,45 @@ def test_table_filter_and_pagination_preserve_state(monkeypatch):
     assert 'hx-get="/viewer/object/table/EMPLOYEE?page=2&amp;sort=NAME&amp;filter=ali"' in html
 
 
+def test_editable_table_cells_have_visible_affordance(monkeypatch):
+    monkeypatch.setenv("APP_ROOT_PATH", "/viewer")
+
+    data = PagedData(
+        columns=[Column(name="NAME", type_name="VARCHAR(50)")],
+        rows=[{"NAME": "Alice", "_db_key": "abc"}],
+        total_count=1,
+    )
+
+    html = str(data_table(data, "EMPLOYEE", "table"))
+
+    assert "editable-cell" in html
+    assert "cursor-text" in html
+    assert "hover:bg-warning/10" in html
+    assert 'title="Click to edit NAME"' in html
+
+
+def test_empty_filtered_table_keeps_filter_controls(monkeypatch):
+    monkeypatch.setenv("APP_ROOT_PATH", "/viewer")
+
+    data = PagedData(
+        columns=[Column(name="NAME", type_name="VARCHAR(50)")],
+        rows=[],
+        total_count=0,
+        page=0,
+        page_size=50,
+        filter_text="missing",
+    )
+
+    html = str(data_table(data, "CHAT", "table"))
+
+    assert "No data found." in html
+    assert 'name="filter"' in html
+    assert 'value="missing"' in html
+    assert "Clear" in html
+    assert 'hx-get="/viewer/object/table/CHAT"' in html
+    assert "CHAT" in html
+
+
 def test_manual_fetches_use_app_url_helper():
     js = Path("static/app.js").read_text(encoding="utf-8")
 
@@ -124,3 +164,50 @@ def test_manual_fetches_use_app_url_helper():
     assert "fetch(appUrl('/ai/defaults'))" in js
     assert "fetch(`/object/table/" not in js
     assert "fetch('/ai/defaults')" not in js
+
+
+def test_inline_edit_js_shows_editing_hint_and_focus_style():
+    js = Path("static/app.js").read_text(encoding="utf-8")
+
+    assert "Enter save / Esc cancel" in js
+    assert "Edit ${column}" in js
+    assert "editor.style.border = '2px solid" in js
+    assert "editor.style.boxSizing = 'border-box'" in js
+    assert "editor.style.fontFamily = input.style.fontFamily" in js
+    assert "editor.style.fontSize = input.style.fontSize" in js
+    assert "input.style.fontSize = '16px'" in js
+    assert "input.style.minWidth = '0'" in js
+    assert "restoreEditStyle" in js
+
+
+def test_row_edit_form_supports_null_and_date_inputs(monkeypatch):
+    monkeypatch.setenv("APP_ROOT_PATH", "/viewer")
+
+    columns = [
+        Column(name="ID", type_name="INTEGER", nullable=False, is_primary_key=True),
+        Column(name="NOTE", type_name="VARCHAR(2000)"),
+        Column(name="DT_PAY", type_name="DATE"),
+        Column(name="DT_CLOSE", type_name="TIMESTAMP"),
+        Column(name="SKIP_ME", type_name="VARCHAR(50)", is_computed=True),
+    ]
+    values = {
+        "ID": 42,
+        "NOTE": None,
+        "DT_PAY": "2025-08-23",
+        "DT_CLOSE": "2025-09-03 01:33:21.993000",
+    }
+
+    html = str(row_edit_form(columns, "BILL_PAY", "aabb", values))
+
+    assert "Edit BILL_PAY row" in html
+    assert 'hx-post="/viewer/object/table/BILL_PAY/row/aabb/edit"' in html
+    assert 'name="col_ID"' in html
+    assert "required" in html
+    assert 'name="null_NOTE"' in html
+    assert "checked" in html
+    assert "<textarea" in html
+    assert 'type="date"' in html
+    assert 'value="2025-08-23"' in html
+    assert 'type="datetime-local"' in html
+    assert 'value="2025-09-03T01:33:21.993000"' in html
+    assert "SKIP_ME" not in html

@@ -4,6 +4,8 @@ All Firebird-specific SQL queries live here. The rest of the application
 interacts with Firebird only through this module.
 """
 
+from decimal import Decimal, InvalidOperation
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
@@ -55,6 +57,60 @@ def _quote(identifier: str) -> str:
     """Quote a Firebird identifier to prevent SQL injection."""
     escaped = identifier.replace('"', '""')
     return f'"{escaped}"'
+
+
+def _is_filterable_text_column(column: Column) -> bool:
+    """Return whether a column can be searched without lossy casts."""
+    return column.type_name.upper().startswith(("CHAR", "VARCHAR"))
+
+
+def _is_filterable_numeric_column(column: Column) -> bool:
+    """Return whether a column can be searched by numeric equality."""
+    type_name = column.type_name.upper()
+    return type_name.startswith(
+        ("SMALLINT", "INTEGER", "BIGINT", "FLOAT", "DOUBLE PRECISION", "DECIMAL", "NUMERIC")
+    )
+
+
+def _parse_filter_decimal(value: str) -> Decimal | None:
+    """Parse a filter value as a number, if it is safe to use for numeric equality."""
+    try:
+        return Decimal(value.replace(",", "."))
+    except InvalidOperation:
+        return None
+
+
+def _numeric_filter_value(column: Column, value: Decimal) -> int | float | Decimal | None:
+    """Return a driver-friendly numeric filter value for a column."""
+    type_name = column.type_name.upper()
+    if type_name.startswith("SMALLINT"):
+        if value != value.to_integral_value():
+            return None
+        int_value = int(value)
+        return int_value if -32768 <= int_value <= 32767 else None
+    if type_name.startswith("INTEGER"):
+        if value != value.to_integral_value():
+            return None
+        int_value = int(value)
+        return int_value if -2147483648 <= int_value <= 2147483647 else None
+    if type_name.startswith("BIGINT"):
+        if value != value.to_integral_value():
+            return None
+        int_value = int(value)
+        return int_value if -9223372036854775808 <= int_value <= 9223372036854775807 else None
+    if type_name.startswith(("FLOAT", "DOUBLE PRECISION")):
+        return float(value)
+    return value
+
+
+def _text_filter_predicate(column: Column) -> str:
+    """Build a safe row-filter predicate for a text column."""
+    return f"t.{_quote(column.name)} CONTAINING :filter_text"
+
+
+def _numeric_filter_predicate(column: Column, param_name: str) -> str:
+    """Build a safe row-filter predicate for a numeric column."""
+    return f"t.{_quote(column.name)} = :{param_name}"
 
 
 def _clean_metadata_source(value: object) -> str:
@@ -236,13 +292,25 @@ class FirebirdRepository(DatabasePort):
         params: dict[str, object] = {}
         where_clause = ""
         if filter_text:
-            searchable_cols = [c for c in columns if c.type_name.upper() != "BLOB"]
-            if searchable_cols:
+            predicates = [
+                _text_filter_predicate(c) for c in columns if _is_filterable_text_column(c)
+            ]
+            filter_number = _parse_filter_decimal(filter_text)
+            if filter_number is not None:
+                numeric_idx = 0
+                for col in columns:
+                    if not _is_filterable_numeric_column(col):
+                        continue
+                    numeric_value = _numeric_filter_value(col, filter_number)
+                    if numeric_value is None:
+                        continue
+                    param_name = f"filter_number_{numeric_idx}"
+                    numeric_idx += 1
+                    params[param_name] = numeric_value
+                    predicates.append(_numeric_filter_predicate(col, param_name))
+
+            if predicates:
                 params["filter_text"] = filter_text
-                predicates = [
-                    f"CAST(t.{_quote(c.name)} AS VARCHAR(1024)) CONTAINING :filter_text"
-                    for c in searchable_cols
-                ]
                 where_clause = " WHERE " + " OR ".join(predicates)
 
         offset = page * page_size
@@ -289,6 +357,32 @@ class FirebirdRepository(DatabasePort):
             sort_dir=sort_dir.upper(),
             filter_text=filter_text,
         )
+
+    async def get_row(self, table_name: str, db_key_hex: str) -> dict[str, object]:
+        """Get one row identified by RDB$DB_KEY (hex-encoded)."""
+        engine = await self._get_engine()
+        columns = await self.get_columns(table_name)
+        quoted_table = _quote(table_name)
+        db_key_bytes = bytes.fromhex(db_key_hex)
+        query = f"SELECT t.* FROM {quoted_table} t WHERE t.RDB$DB_KEY = :db_key"
+
+        async with engine.connect() as conn:
+            result = await conn.execute(text(query), {"db_key": db_key_bytes})
+            row = result.fetchone()
+
+        if row is None:
+            return {}
+
+        row_dict: dict[str, object] = {}
+        for i, col in enumerate(columns):
+            val = row[i] if i < len(row) else None
+            if isinstance(val, bytes):
+                try:
+                    val = val.decode("utf-8")
+                except UnicodeDecodeError:
+                    val = val.hex()
+            row_dict[col.name] = val
+        return row_dict
 
     async def delete_row(self, table_name: str, db_key_hex: str) -> int:
         """Delete a row identified by RDB$DB_KEY (hex-encoded).

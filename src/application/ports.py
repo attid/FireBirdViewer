@@ -43,6 +43,9 @@ class DatabasePort(ABC):
     ) -> PagedData: ...
 
     @abstractmethod
+    async def get_row(self, table_name: str, db_key_hex: str) -> dict[str, object]: ...
+
+    @abstractmethod
     async def delete_row(self, table_name: str, db_key_hex: str) -> int: ...
 
     @abstractmethod

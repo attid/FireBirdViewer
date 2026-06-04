@@ -11,6 +11,7 @@ from src.application.use_cases import (
     ExecuteAiDmlUseCase,
     ExecuteProcedureUseCase,
     ExecuteQueryUseCase,
+    GetRowUseCase,
     InsertRowUseCase,
     ListObjectsUseCase,
     UpdateCellUseCase,
@@ -70,6 +71,10 @@ class FakeDatabasePort(DatabasePort):
             sort_dir=sort_dir,
             filter_text=filter_text,
         )
+
+    async def get_row(self, table_name: str, db_key_hex: str) -> dict[str, object]:
+        self._last_get_row_args = (table_name, db_key_hex)
+        return {"ID": 1, "NAME": "Alice"}
 
     async def get_ddl(self, table_name: str) -> str:
         return f'CREATE TABLE "{table_name}" ("ID" INTEGER NOT NULL);'
@@ -203,6 +208,16 @@ async def test_update_cell_to_empty():
     use_case = UpdateCellUseCase(db)
     await use_case.execute("USERS", "aabb", "NAME", "")
     assert db._updated[0] == ("USERS", "aabb", "NAME", "")
+
+
+@pytest.mark.asyncio
+async def test_get_row():
+    db = FakeDatabasePort()
+    use_case = GetRowUseCase(db)
+    row = await use_case.execute("USERS", "aabb")
+
+    assert row == {"ID": 1, "NAME": "Alice"}
+    assert db._last_get_row_args == ("USERS", "aabb")
 
 
 @pytest.mark.asyncio

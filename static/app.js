@@ -90,25 +90,64 @@ document.addEventListener('htmx:afterSwap', function() {
 
         // Remember original display text
         const originalText = cell.textContent;
+        const originalStyle = {
+            backgroundColor: cell.style.backgroundColor,
+            boxShadow: cell.style.boxShadow,
+            position: cell.style.position,
+        };
 
         // Create input
         const input = document.createElement('input');
         input.type = 'text';
         input.value = rawValue;
         input.className = 'input input-bordered input-xs w-full';
-        input.style.minWidth = '60px';
+        input.setAttribute('aria-label', `Edit ${column}`);
+        input.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
+        input.style.fontSize = '16px';
+        input.style.minWidth = '0';
+        input.style.width = '100%';
+
+        const hint = document.createElement('div');
+        hint.textContent = 'Enter save / Esc cancel';
+        hint.style.fontSize = '10px';
+        hint.style.lineHeight = '1';
+        hint.style.marginTop = '3px';
+        hint.style.opacity = '0.65';
+        hint.style.whiteSpace = 'nowrap';
+
+        const editor = document.createElement('div');
+        const editorChars = Math.max(32, Math.min(String(rawValue).length + 4, 80));
+        editor.style.fontFamily = input.style.fontFamily;
+        editor.style.fontSize = input.style.fontSize;
+        editor.style.width = `${editorChars}ch`;
+        editor.style.maxWidth = 'min(80ch, 70vw)';
+        editor.style.boxSizing = 'border-box';
+        editor.style.padding = '2px';
+        editor.style.border = '2px solid rgba(59, 130, 246, 0.65)';
+        editor.style.boxShadow = 'inset 0 0 0 1px rgba(59, 130, 246, 0.35)';
+        editor.appendChild(input);
+        editor.appendChild(hint);
 
         // Replace cell content
         cell.textContent = '';
-        cell.appendChild(input);
+        cell.appendChild(editor);
+        cell.style.position = 'relative';
+        cell.style.backgroundColor = 'rgba(59, 130, 246, 0.08)';
         input.focus();
-        input.select();
+        input.setSelectionRange(0, 0);
 
         let settled = false;
+
+        function restoreEditStyle() {
+            cell.style.backgroundColor = originalStyle.backgroundColor;
+            cell.style.boxShadow = originalStyle.boxShadow;
+            cell.style.position = originalStyle.position;
+        }
 
         function cancel() {
             if (settled) return;
             settled = true;
+            restoreEditStyle();
             cell.textContent = originalText;
         }
 
@@ -118,6 +157,7 @@ document.addEventListener('htmx:afterSwap', function() {
 
             const newValue = input.value;
             // Show saving state
+            restoreEditStyle();
             cell.textContent = '...';
             cell.classList.add('opacity-50');
 

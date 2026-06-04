@@ -10,17 +10,11 @@ from src.interface.paths import url_path
 
 def data_table(data: PagedData, object_name: str, object_type: str):
     """Render a paginated data table with sort controls."""
-    if not data.rows:
-        return Div(
-            P("No data found.", cls="text-base-content/60"),
-            cls="card bg-base-100 shadow p-6",
-        )
-
     can_delete = object_type == "table"
 
     header_cells = []
     if can_delete:
-        header_cells.append(Th("", cls="text-xs w-10"))
+        header_cells.append(Th("", cls="text-xs w-20"))
     for col in data.columns:
         sort_icon = ""
         pk_badge = ""
@@ -55,15 +49,25 @@ def data_table(data: PagedData, object_name: str, object_type: str):
         if can_delete and db_key:
             cells.append(
                 Td(
-                    Button(
-                        "x",
-                        hx_delete=url_path(f"/object/table/{object_name}/row/{db_key}"),
-                        hx_target="#content-area",
-                        hx_swap="innerHTML",
-                        hx_confirm=f"Delete this row from {object_name}?",
-                        cls="btn btn-ghost btn-xs text-error",
+                    Div(
+                        A(
+                            "Edit",
+                            hx_get=url_path(f"/object/table/{object_name}/row/{db_key}/edit-form"),
+                            hx_target="#content-area",
+                            hx_swap="innerHTML",
+                            cls="btn btn-ghost btn-xs",
+                        ),
+                        Button(
+                            "x",
+                            hx_delete=url_path(f"/object/table/{object_name}/row/{db_key}"),
+                            hx_target="#content-area",
+                            hx_swap="innerHTML",
+                            hx_confirm=f"Delete this row from {object_name}?",
+                            cls="btn btn-ghost btn-xs text-error",
+                        ),
+                        cls="flex items-center gap-1",
                     ),
-                    cls="text-xs w-10",
+                    cls="text-xs w-20",
                 )
             )
         for col in data.columns:
@@ -75,10 +79,14 @@ def data_table(data: PagedData, object_name: str, object_type: str):
 
             td_attrs: dict[str, str] = {}
             if can_delete and db_key and not col.is_computed and col.type_name != "BLOB":
-                td_attrs["cls"] = f"text-xs {null_cls} editable-cell cursor-pointer"
+                td_attrs["cls"] = (
+                    f"text-xs {null_cls} editable-cell cursor-text transition-colors "
+                    "hover:bg-warning/10 hover:ring-1 hover:ring-warning/40"
+                )
                 td_attrs["data_db_key"] = db_key
                 td_attrs["data_column"] = col.name
                 td_attrs["data_table"] = object_name
+                td_attrs["title"] = f"Click to edit {col.name}"
                 raw_val = str(val) if val is not None else ""
                 td_attrs["data_value"] = raw_val
             else:
@@ -101,6 +109,20 @@ def data_table(data: PagedData, object_name: str, object_type: str):
             cls="btn btn-primary btn-xs",
         )
 
+    table_content = Div(
+        Table(
+            Thead(Tr(*header_cells)),
+            Tbody(*body_rows),
+            cls="table table-xs table-pin-rows",
+        ),
+        cls="overflow-x-auto max-h-[60vh]",
+    )
+    if not data.rows:
+        table_content = Div(
+            P("No data found.", cls="text-base-content/60"),
+            cls="rounded-box border border-base-300 bg-base-100 p-6",
+        )
+
     return Div(
         Div(
             H3(object_name, cls="text-lg font-bold"),
@@ -110,14 +132,7 @@ def data_table(data: PagedData, object_name: str, object_type: str):
         ),
         _object_tabs(object_name, object_type, active_tab="data"),
         table_filter,
-        Div(
-            Table(
-                Thead(Tr(*header_cells)),
-                Tbody(*body_rows),
-                cls="table table-xs table-pin-rows",
-            ),
-            cls="overflow-x-auto max-h-[60vh]",
-        ),
+        table_content,
         pagination,
         cls="card bg-base-100 shadow p-4",
     )

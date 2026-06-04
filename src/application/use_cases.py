@@ -131,6 +131,16 @@ class DeleteRowUseCase:
         return await self._db.delete_row(table_name, db_key_hex)
 
 
+class GetRowUseCase:
+    """Get a single row by its RDB$DB_KEY."""
+
+    def __init__(self, db: DatabasePort) -> None:
+        self._db = db
+
+    async def execute(self, table_name: str, db_key_hex: str) -> dict[str, object]:
+        return await self._db.get_row(table_name, db_key_hex)
+
+
 class InsertRowUseCase:
     """Insert a new row into a table."""
 

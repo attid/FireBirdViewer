@@ -26,6 +26,7 @@ from src.application.use_cases import (
     ExecuteProcedureUseCase,
     ExecuteQueryUseCase,
     GetColumnsUseCase,
+    GetRowUseCase,
     InsertRowUseCase,
     ListObjectsUseCase,
     UpdateCellUseCase,
@@ -40,7 +41,7 @@ from src.interface.components.ai import (
     ai_dml_result,
     ai_user_message,
 )
-from src.interface.components.crud import insert_form
+from src.interface.components.crud import insert_form, row_edit_form
 from src.interface.components.data import data_table, ddl_view
 from src.interface.components.layout import (
     connect_form,
@@ -318,6 +319,75 @@ async def delete(request: Request, table_name: str, db_key: str):
         return data_table(data, table_name, "table")
     except Exception as exc:
         return error_alert(f"Delete failed: {_clean_db_error(exc)}")
+    finally:
+        await repo.close()
+
+
+@rt(url_path("/object/table/{table_name}/row/{db_key}/edit-form"))
+async def get(request: Request, table_name: str, db_key: str):
+    """Show a full-row edit form for a table row."""
+    repo = _get_repo(request)
+    if repo is None:
+        return error_alert("Not connected. Please reconnect.")
+
+    try:
+        columns = await GetColumnsUseCase(repo).execute(table_name)
+        values = await GetRowUseCase(repo).execute(table_name, db_key)
+        if not values:
+            return error_alert(f"Row not found in {table_name}.")
+        return row_edit_form(columns, table_name, db_key, values)
+    except Exception as exc:
+        return error_alert(f"Failed to load row: {_clean_db_error(exc)}")
+    finally:
+        await repo.close()
+
+
+@rt(url_path("/object/table/{table_name}/row/{db_key}/edit"))
+async def post(request: Request, table_name: str, db_key: str):
+    """Update several columns from the full-row edit form."""
+    repo = _get_repo(request)
+    if repo is None:
+        return error_alert("Not connected. Please reconnect.")
+
+    submitted: dict[str, object] = {}
+    display_values: dict[str, object] = {}
+    try:
+        form = await request.form()
+        columns = await GetColumnsUseCase(repo).execute(table_name)
+        editable_columns = {
+            col.name: col for col in columns if not col.is_computed and col.type_name != "BLOB"
+        }
+
+        for col_name in editable_columns:
+            if f"null_{col_name}" in form:
+                submitted[col_name] = ""
+                display_values[col_name] = None
+            elif f"col_{col_name}" in form:
+                value = str(form.get(f"col_{col_name}", ""))
+                submitted[col_name] = value
+                display_values[col_name] = value
+
+        if not submitted:
+            return error_alert("No editable data provided.")
+
+        update_uc = UpdateCellUseCase(repo)
+        for col_name, value in submitted.items():
+            await update_uc.execute(table_name, db_key, col_name, value)
+
+        data = await ViewTableDataUseCase(repo).execute(table_name, page=0, page_size=50)
+        return data_table(data, table_name, "table")
+    except Exception as exc:
+        try:
+            columns = await GetColumnsUseCase(repo).execute(table_name)
+            return row_edit_form(
+                columns,
+                table_name,
+                db_key,
+                values=display_values,
+                error=_clean_db_error(exc),
+            )
+        except Exception:
+            return error_alert(f"Update failed: {_clean_db_error(exc)}")
     finally:
         await repo.close()
 
