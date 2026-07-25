@@ -64,6 +64,9 @@ class _FakeConnection:
             return _FakeResult(scalar_value=0)
         return _FakeResult(rows=[])
 
+    async def commit(self):
+        return None
+
 
 class _FakeEngine:
     def __init__(self):
@@ -123,6 +126,36 @@ async def test_insert_row_rejects_unknown_column_before_connecting(monkeypatch):
 
     with pytest.raises(ValueError, match="Unknown column"):
         await repo.insert_row("USERS", {"NAME": "Alice"})
+
+
+@pytest.mark.asyncio
+async def test_insert_row_omits_blank_columns_to_allow_defaults_and_triggers(monkeypatch):
+    repo = _repo()
+    engine = _FakeEngine()
+
+    async def fake_get_columns(table_name: str) -> list[Column]:
+        assert table_name == "T_ALARM"
+        return [
+            Column(
+                name="ALARM_ID",
+                type_name="INTEGER",
+                nullable=False,
+                is_primary_key=True,
+            ),
+            Column(name="DESK_ID", type_name="INTEGER", nullable=False),
+        ]
+
+    async def fake_get_engine():
+        return engine
+
+    monkeypatch.setattr(repo, "get_columns", fake_get_columns)
+    monkeypatch.setattr(repo, "_get_engine", fake_get_engine)
+
+    await repo.insert_row("T_ALARM", {"ALARM_ID": "", "DESK_ID": "117"})
+
+    insert_sql, insert_params = engine.conn.calls[0]
+    assert insert_sql == 'INSERT INTO "T_ALARM" ("DESK_ID") VALUES (:p0)'
+    assert insert_params == {"p0": "117"}
 
 
 @pytest.mark.asyncio

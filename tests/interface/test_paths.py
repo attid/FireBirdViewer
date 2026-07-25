@@ -92,6 +92,27 @@ def test_object_components_prefix_action_urls(monkeypatch):
     assert 'hx-post="/db/ai/execute"' in ai_msg_html
 
 
+def test_insert_form_does_not_block_blank_not_null_fields():
+    html = str(
+        insert_form(
+            [
+                Column(
+                    name="ALARM_ID",
+                    type_name="INTEGER",
+                    nullable=False,
+                    is_primary_key=True,
+                ),
+                Column(name="DESK_ID", type_name="INTEGER", nullable=False),
+            ],
+            "T_ALARM",
+        )
+    )
+
+    assert 'name="col_ALARM_ID"' in html
+    assert 'name="col_DESK_ID"' in html
+    assert "required" not in html
+
+
 def test_table_filter_and_pagination_preserve_state(monkeypatch):
     monkeypatch.setenv("APP_ROOT_PATH", "/viewer")
 

@@ -53,11 +53,6 @@ def insert_form(
 
         input_type, placeholder = _field_input_type(col)
 
-        is_required = not col.nullable
-        required_badge = ""
-        if is_required:
-            required_badge = Span("*", cls="text-error ml-1", title="required")
-
         disabled = col.type_name == "BLOB"
 
         input_kwargs: dict[str, object] = {
@@ -68,8 +63,6 @@ def insert_form(
         }
         if disabled:
             input_kwargs["disabled"] = True
-        if is_required:
-            input_kwargs["required"] = True
         prev_val = values.get(col.name, "")
         if prev_val:
             input_kwargs["value"] = prev_val
@@ -78,7 +71,6 @@ def insert_form(
             Div(
                 Label(
                     Span(col.name, cls="text-sm font-mono"),
-                    required_badge,
                     Span(col.type_name, cls="badge badge-xs badge-ghost ml-2"),
                     cls="label py-1",
                 ),
@@ -94,12 +86,6 @@ def insert_form(
             cls="alert alert-error shadow-lg mb-4 text-sm",
         )
 
-    required_hint = P(
-        Span("*", cls="text-error"),
-        " required fields",
-        cls="text-xs text-base-content/60 mt-1",
-    )
-
     return Div(
         Div(
             H3(f"Insert into {table_name}", cls="text-lg font-bold"),
@@ -108,7 +94,6 @@ def insert_form(
         error_block,
         Form(
             Div(*fields, cls="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1"),
-            required_hint,
             Div(
                 Button("Insert", type="submit", cls="btn btn-primary btn-sm"),
                 A(

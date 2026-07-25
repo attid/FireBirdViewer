@@ -402,9 +402,9 @@ class FirebirdRepository(DatabasePort):
     async def insert_row(self, table_name: str, data: dict[str, object]) -> None:
         """Insert a new row into a table.
 
-        ``data`` maps column names to values. Empty strings are converted
-        to ``None`` so that Firebird treats them as NULLs (avoids type
-        coercion errors on numeric/date columns).
+        ``data`` maps column names to values. Empty strings are omitted from
+        the statement so Firebird defaults and BEFORE INSERT triggers can
+        populate generated values.
         """
         if not data:
             msg = "No data to insert"
@@ -420,26 +420,27 @@ class FirebirdRepository(DatabasePort):
                 msg = f"Cannot insert into computed column: {col_name}"
                 raise ValueError(msg)
 
+        insert_data = {col_name: val for col_name, val in data.items() if val != ""}
+        if not insert_data:
+            msg = "No data to insert"
+            raise ValueError(msg)
+
         engine = await self._get_engine()
         quoted_table = _quote(table_name)
 
         col_clauses = []
         param_names = []
         param_values: dict[str, object] = {}
-        for idx, (col_name, val) in enumerate(data.items()):
+        for idx, (col_name, val) in enumerate(insert_data.items()):
             col_clauses.append(_quote(col_name))
             param_key = f"p{idx}"
             param_names.append(f":{param_key}")
-            # Treat empty strings as NULL (user left field blank)
-            if val == "":
-                param_values[param_key] = None
-            else:
-                # HTML datetime-local gives "2025-01-15T06:15" but Firebird
-                # expects "2025-01-15 06:15" (T is parsed as timezone region)
-                str_val = str(val)
-                if "T" in str_val and len(str_val) >= 16 and str_val[10:11] == "T":
-                    str_val = str_val.replace("T", " ", 1)
-                param_values[param_key] = str_val
+            # HTML datetime-local gives "2025-01-15T06:15" but Firebird
+            # expects "2025-01-15 06:15" (T is parsed as timezone region)
+            str_val = str(val)
+            if "T" in str_val and len(str_val) >= 16 and str_val[10:11] == "T":
+                str_val = str_val.replace("T", " ", 1)
+            param_values[param_key] = str_val
 
         cols_sql = ", ".join(col_clauses)
         vals_sql = ", ".join(param_names)
