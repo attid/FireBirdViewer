@@ -6,6 +6,7 @@ from src.domain.models import ProcedureInfo, QueryResult
 from src.interface.paths import url_path
 
 from .data import _object_tabs
+from .form_fields import boolean_select
 
 # error_alert is a shared component, imported by re-export in __init__.py
 # but we need the local definition for procedure_result to call.
@@ -81,6 +82,20 @@ def _procedure_execute_form(proc_name: str, input_params: list):
 
     fields = []
     for p in input_params:
+        field_control = (
+            boolean_select(
+                f"param_{p.name}",
+                include_blank=True,
+                blank_label="NULL",
+            )
+            if p.type_name.upper() == "BOOLEAN"
+            else Input(
+                type="text",
+                name=f"param_{p.name}",
+                placeholder=p.type_name,
+                cls="input input-bordered input-sm w-full",
+            )
+        )
         fields.append(
             Div(
                 Label(
@@ -88,12 +103,7 @@ def _procedure_execute_form(proc_name: str, input_params: list):
                     Span(p.type_name, cls="badge badge-xs badge-ghost ml-2"),
                     cls="label py-1",
                 ),
-                Input(
-                    type="text",
-                    name=f"param_{p.name}",
-                    placeholder=p.type_name,
-                    cls="input input-bordered input-sm w-full",
-                ),
+                field_control,
                 cls="form-control",
             )
         )

@@ -113,6 +113,22 @@ def test_insert_form_does_not_block_blank_not_null_fields():
     assert "required" not in html
 
 
+def test_insert_form_renders_boolean_select_and_preserves_value():
+    html = str(
+        insert_form(
+            [Column(name="ALARM_CHECK", type_name="BOOLEAN", nullable=False)],
+            "T_ALARM",
+            values={"ALARM_CHECK": "FALSE"},
+        )
+    )
+
+    assert '<select name="col_ALARM_CHECK"' in html
+    assert '<option value="">Default</option>' in html
+    assert '<option value="TRUE">TRUE</option>' in html
+    assert '<option value="FALSE" selected>FALSE</option>' in html
+    assert 'placeholder="BOOLEAN"' not in html
+
+
 def test_table_filter_and_pagination_preserve_state(monkeypatch):
     monkeypatch.setenv("APP_ROOT_PATH", "/viewer")
 
@@ -232,3 +248,15 @@ def test_row_edit_form_supports_null_and_date_inputs(monkeypatch):
     assert 'type="datetime-local"' in html
     assert 'value="2025-09-03T01:33:21.993000"' in html
     assert "SKIP_ME" not in html
+
+
+def test_row_edit_form_renders_boolean_select_with_null_control():
+    columns = [Column(name="ACTIVE", type_name="BOOLEAN", nullable=True)]
+
+    html = str(row_edit_form(columns, "EMPLOYEE", "aabb", {"ACTIVE": True}))
+
+    assert '<select name="col_ACTIVE"' in html
+    assert '<option value="TRUE" selected>TRUE</option>' in html
+    assert '<option value="FALSE">FALSE</option>' in html
+    assert '<option value="">' not in html
+    assert 'name="null_ACTIVE"' in html

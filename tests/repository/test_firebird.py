@@ -9,26 +9,32 @@ from decimal import Decimal
 import pytest
 
 from src.domain.models import Column, ConnectionParams
-from src.repository.firebird import FirebirdRepository
+from src.repository.firebird import FirebirdRepository, _map_fb_type
 
 
 def _repo() -> FirebirdRepository:
     return FirebirdRepository(ConnectionParams(database="localhost:test", password="pw"))
 
 
-ALL_FILTER_COLUMN_TYPES = [
+FILTER_TEST_COLUMN_TYPES = [
     Column(name="C_SMALLINT", type_name="SMALLINT"),
     Column(name="C_INTEGER", type_name="INTEGER"),
     Column(name="C_BIGINT", type_name="BIGINT"),
+    Column(name="C_INT128", type_name="INT128"),
     Column(name="C_FLOAT", type_name="FLOAT"),
     Column(name="C_DOUBLE", type_name="DOUBLE PRECISION"),
+    Column(name="C_DECFLOAT16", type_name="DECFLOAT(16)"),
+    Column(name="C_DECFLOAT34", type_name="DECFLOAT(34)"),
     Column(name="C_DECIMAL", type_name="DECIMAL(18,2)"),
     Column(name="C_NUMERIC", type_name="NUMERIC(18,2)"),
     Column(name="C_CHAR", type_name="CHAR(20)"),
     Column(name="C_VARCHAR", type_name="VARCHAR(2048)"),
+    Column(name="C_BOOLEAN", type_name="BOOLEAN"),
     Column(name="C_DATE", type_name="DATE"),
     Column(name="C_TIME", type_name="TIME"),
+    Column(name="C_TIME_TZ", type_name="TIME WITH TIME ZONE"),
     Column(name="C_TIMESTAMP", type_name="TIMESTAMP"),
+    Column(name="C_TIMESTAMP_TZ", type_name="TIMESTAMP WITH TIME ZONE"),
     Column(name="C_BLOB", type_name="BLOB"),
 ]
 
@@ -91,6 +97,76 @@ async def _capture_filter_sql(monkeypatch, columns: list[Column], filter_text: s
 
     await repo.get_table_data("ALL_TYPES", filter_text=filter_text)
     return engine.conn.calls[0]
+
+
+@pytest.mark.parametrize(
+    ("type_code", "length", "character_length", "expected"),
+    [
+        (7, 2, None, "SMALLINT"),
+        (8, 4, None, "INTEGER"),
+        (10, 4, None, "FLOAT"),
+        (12, 4, None, "DATE"),
+        (13, 4, None, "TIME"),
+        (14, 80, 20, "CHAR(20)"),
+        (16, 8, None, "BIGINT"),
+        (23, 1, None, "BOOLEAN"),
+        (24, 8, None, "DECFLOAT(16)"),
+        (25, 16, None, "DECFLOAT(34)"),
+        (26, 16, None, "INT128"),
+        (27, 8, None, "DOUBLE PRECISION"),
+        (28, 8, None, "TIME WITH TIME ZONE"),
+        (29, 12, None, "TIMESTAMP WITH TIME ZONE"),
+        (35, 8, None, "TIMESTAMP"),
+        (37, 200, 50, "VARCHAR(50)"),
+        (261, 8, None, "BLOB"),
+    ],
+)
+def test_map_all_firebird_scalar_type_codes(
+    type_code: int,
+    length: int,
+    character_length: int | None,
+    expected: str,
+):
+    assert (
+        _map_fb_type(
+            type_code,
+            sub_type=None,
+            length=length,
+            scale=None,
+            precision=None,
+            character_length=character_length,
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("type_code", "sub_type", "precision", "scale", "expected"),
+    [
+        (7, 1, 4, -2, "NUMERIC(4,2)"),
+        (8, 2, 9, -2, "DECIMAL(9,2)"),
+        (16, 1, 18, -4, "NUMERIC(18,4)"),
+        (26, 2, 38, -6, "DECIMAL(38,6)"),
+    ],
+)
+def test_map_fixed_point_types_uses_metadata_precision(
+    type_code: int,
+    sub_type: int,
+    precision: int,
+    scale: int,
+    expected: str,
+):
+    assert (
+        _map_fb_type(
+            type_code,
+            sub_type=sub_type,
+            length=None,
+            scale=scale,
+            precision=precision,
+            character_length=None,
+        )
+        == expected
+    )
 
 
 @pytest.mark.asyncio
@@ -352,7 +428,7 @@ async def test_get_table_data_skips_integer_columns_outside_type_range(monkeypat
 @pytest.mark.asyncio
 async def test_filter_all_supported_column_types_for_text_search(monkeypatch):
     select_sql, select_params = await _capture_filter_sql(
-        monkeypatch, ALL_FILTER_COLUMN_TYPES, "needle"
+        monkeypatch, FILTER_TEST_COLUMN_TYPES, "needle"
     )
 
     assert 't."C_CHAR" CONTAINING :filter_text' in select_sql
@@ -361,13 +437,19 @@ async def test_filter_all_supported_column_types_for_text_search(monkeypatch):
         "C_SMALLINT",
         "C_INTEGER",
         "C_BIGINT",
+        "C_INT128",
         "C_FLOAT",
         "C_DOUBLE",
+        "C_DECFLOAT16",
+        "C_DECFLOAT34",
         "C_DECIMAL",
         "C_NUMERIC",
+        "C_BOOLEAN",
         "C_DATE",
         "C_TIME",
+        "C_TIME_TZ",
         "C_TIMESTAMP",
+        "C_TIMESTAMP_TZ",
         "C_BLOB",
     ):
         assert f't."{col}"' not in select_sql
@@ -378,7 +460,7 @@ async def test_filter_all_supported_column_types_for_text_search(monkeypatch):
 @pytest.mark.asyncio
 async def test_filter_all_supported_column_types_for_integer_search(monkeypatch):
     select_sql, select_params = await _capture_filter_sql(
-        monkeypatch, ALL_FILTER_COLUMN_TYPES, "42"
+        monkeypatch, FILTER_TEST_COLUMN_TYPES, "42"
     )
 
     assert 't."C_CHAR" CONTAINING :filter_text' in select_sql
@@ -387,13 +469,24 @@ async def test_filter_all_supported_column_types_for_integer_search(monkeypatch)
         "C_SMALLINT",
         "C_INTEGER",
         "C_BIGINT",
+        "C_INT128",
         "C_FLOAT",
         "C_DOUBLE",
+        "C_DECFLOAT16",
+        "C_DECFLOAT34",
         "C_DECIMAL",
         "C_NUMERIC",
     ):
         assert f't."{col}" = :' in select_sql
-    for col in ("C_DATE", "C_TIME", "C_TIMESTAMP", "C_BLOB"):
+    for col in (
+        "C_BOOLEAN",
+        "C_DATE",
+        "C_TIME",
+        "C_TIME_TZ",
+        "C_TIMESTAMP",
+        "C_TIMESTAMP_TZ",
+        "C_BLOB",
+    ):
         assert f't."{col}"' not in select_sql
     assert "CAST(" not in select_sql
     assert select_params["filter_text"] == "42"
@@ -403,11 +496,21 @@ async def test_filter_all_supported_column_types_for_integer_search(monkeypatch)
 @pytest.mark.asyncio
 async def test_filter_all_supported_column_types_for_large_integer_search(monkeypatch):
     select_sql, select_params = await _capture_filter_sql(
-        monkeypatch, ALL_FILTER_COLUMN_TYPES, "30000209"
+        monkeypatch, FILTER_TEST_COLUMN_TYPES, "30000209"
     )
 
     assert 't."C_SMALLINT"' not in select_sql
-    for col in ("C_INTEGER", "C_BIGINT", "C_FLOAT", "C_DOUBLE", "C_DECIMAL", "C_NUMERIC"):
+    for col in (
+        "C_INTEGER",
+        "C_BIGINT",
+        "C_INT128",
+        "C_FLOAT",
+        "C_DOUBLE",
+        "C_DECFLOAT16",
+        "C_DECFLOAT34",
+        "C_DECIMAL",
+        "C_NUMERIC",
+    ):
         assert f't."{col}" = :' in select_sql
     assert "CAST(" not in select_sql
     assert select_params["filter_text"] == "30000209"
@@ -417,12 +520,21 @@ async def test_filter_all_supported_column_types_for_large_integer_search(monkey
 @pytest.mark.asyncio
 async def test_filter_all_supported_column_types_for_huge_integer_search(monkeypatch):
     select_sql, select_params = await _capture_filter_sql(
-        monkeypatch, ALL_FILTER_COLUMN_TYPES, "3000000000"
+        monkeypatch, FILTER_TEST_COLUMN_TYPES, "3000000000"
     )
 
     for col in ("C_SMALLINT", "C_INTEGER"):
         assert f't."{col}"' not in select_sql
-    for col in ("C_BIGINT", "C_FLOAT", "C_DOUBLE", "C_DECIMAL", "C_NUMERIC"):
+    for col in (
+        "C_BIGINT",
+        "C_INT128",
+        "C_FLOAT",
+        "C_DOUBLE",
+        "C_DECFLOAT16",
+        "C_DECFLOAT34",
+        "C_DECIMAL",
+        "C_NUMERIC",
+    ):
         assert f't."{col}" = :' in select_sql
     assert "CAST(" not in select_sql
     assert select_params["filter_text"] == "3000000000"
@@ -432,19 +544,45 @@ async def test_filter_all_supported_column_types_for_huge_integer_search(monkeyp
 @pytest.mark.asyncio
 async def test_filter_all_supported_column_types_for_decimal_search(monkeypatch):
     select_sql, select_params = await _capture_filter_sql(
-        monkeypatch, ALL_FILTER_COLUMN_TYPES, "42.5"
+        monkeypatch, FILTER_TEST_COLUMN_TYPES, "42.5"
     )
 
-    for col in ("C_SMALLINT", "C_INTEGER", "C_BIGINT"):
+    for col in ("C_SMALLINT", "C_INTEGER", "C_BIGINT", "C_INT128"):
         assert f't."{col}"' not in select_sql
-    for col in ("C_FLOAT", "C_DOUBLE", "C_DECIMAL", "C_NUMERIC"):
+    for col in (
+        "C_FLOAT",
+        "C_DOUBLE",
+        "C_DECFLOAT16",
+        "C_DECFLOAT34",
+        "C_DECIMAL",
+        "C_NUMERIC",
+    ):
         assert f't."{col}" = :' in select_sql
-    for col in ("C_DATE", "C_TIME", "C_TIMESTAMP", "C_BLOB"):
+    for col in (
+        "C_BOOLEAN",
+        "C_DATE",
+        "C_TIME",
+        "C_TIME_TZ",
+        "C_TIMESTAMP",
+        "C_TIMESTAMP_TZ",
+        "C_BLOB",
+    ):
         assert f't."{col}"' not in select_sql
     assert "CAST(" not in select_sql
     assert select_params["filter_text"] == "42.5"
     assert Decimal("42.5") in select_params.values()
     assert 42.5 in select_params.values()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("filter_text", "expected_value"), [("true", True), ("FALSE", False)])
+async def test_filter_boolean_columns(monkeypatch, filter_text: str, expected_value: bool):
+    select_sql, select_params = await _capture_filter_sql(
+        monkeypatch, FILTER_TEST_COLUMN_TYPES, filter_text
+    )
+
+    assert 't."C_BOOLEAN" = :filter_boolean' in select_sql
+    assert select_params["filter_boolean"] is expected_value
 
 
 @pytest.mark.asyncio

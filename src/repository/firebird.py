@@ -28,7 +28,13 @@ _FB_TYPE_MAP: dict[int, str] = {
     13: "TIME",
     14: "CHAR",
     16: "BIGINT",
+    23: "BOOLEAN",
+    24: "DECFLOAT(16)",
+    25: "DECFLOAT(34)",
+    26: "INT128",
     27: "DOUBLE PRECISION",
+    28: "TIME WITH TIME ZONE",
+    29: "TIMESTAMP WITH TIME ZONE",
     35: "TIMESTAMP",
     37: "VARCHAR",
     261: "BLOB",
@@ -36,20 +42,22 @@ _FB_TYPE_MAP: dict[int, str] = {
 
 
 def _map_fb_type(
-    type_code: int, sub_type: int | None, length: int | None, scale: int | None
+    type_code: int,
+    sub_type: int | None,
+    length: int | None,
+    scale: int | None,
+    precision: int | None = None,
+    character_length: int | None = None,
 ) -> str:
     """Map Firebird internal type code to a human-readable SQL type name."""
-    if type_code == 16 and sub_type and sub_type > 0:
-        precision = length or 18
-        s = abs(scale) if scale else 0
-        return f"DECIMAL({precision},{s})"
-    if type_code == 7 and sub_type and sub_type > 0:
-        precision = length or 4
-        s = abs(scale) if scale else 0
-        return f"DECIMAL({precision},{s})"
+    if type_code in (7, 8, 16, 26) and sub_type in (1, 2):
+        fixed_point_name = "NUMERIC" if sub_type == 1 else "DECIMAL"
+        fixed_point_precision = precision or {7: 4, 8: 9, 16: 18, 26: 38}[type_code]
+        fixed_point_scale = abs(scale or 0)
+        return f"{fixed_point_name}({fixed_point_precision},{fixed_point_scale})"
     base = _FB_TYPE_MAP.get(type_code, f"UNKNOWN({type_code})")
-    if type_code in (14, 37) and length:
-        return f"{base}({length})"
+    if type_code in (14, 37) and (character_length or length):
+        return f"{base}({character_length or length})"
     return base
 
 
@@ -68,7 +76,17 @@ def _is_filterable_numeric_column(column: Column) -> bool:
     """Return whether a column can be searched by numeric equality."""
     type_name = column.type_name.upper()
     return type_name.startswith(
-        ("SMALLINT", "INTEGER", "BIGINT", "FLOAT", "DOUBLE PRECISION", "DECIMAL", "NUMERIC")
+        (
+            "SMALLINT",
+            "INTEGER",
+            "BIGINT",
+            "INT128",
+            "FLOAT",
+            "DOUBLE PRECISION",
+            "DECFLOAT",
+            "DECIMAL",
+            "NUMERIC",
+        )
     )
 
 
@@ -98,6 +116,12 @@ def _numeric_filter_value(column: Column, value: Decimal) -> int | float | Decim
             return None
         int_value = int(value)
         return int_value if -9223372036854775808 <= int_value <= 9223372036854775807 else None
+    if type_name.startswith("INT128"):
+        if value != value.to_integral_value():
+            return None
+        int_value = int(value)
+        limit = 2**127
+        return int_value if -limit <= int_value < limit else None
     if type_name.startswith(("FLOAT", "DOUBLE PRECISION")):
         return float(value)
     return value
@@ -111,6 +135,16 @@ def _text_filter_predicate(column: Column) -> str:
 def _numeric_filter_predicate(column: Column, param_name: str) -> str:
     """Build a safe row-filter predicate for a numeric column."""
     return f"t.{_quote(column.name)} = :{param_name}"
+
+
+def _parse_filter_boolean(value: str) -> bool | None:
+    """Parse Firebird BOOLEAN literals accepted by the table filter."""
+    normalized = value.strip().lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    return None
 
 
 def _clean_metadata_source(value: object) -> str:
@@ -199,6 +233,8 @@ class FirebirdRepository(DatabasePort):
                     "  f.RDB$FIELD_SUB_TYPE, "
                     "  f.RDB$FIELD_LENGTH, "
                     "  f.RDB$FIELD_SCALE, "
+                    "  f.RDB$FIELD_PRECISION, "
+                    "  f.RDB$CHARACTER_LENGTH, "
                     "  rf.RDB$NULL_FLAG, "
                     "  f.RDB$NULL_FLAG, "
                     "  rf.RDB$UPDATE_FLAG, "
@@ -229,6 +265,8 @@ class FirebirdRepository(DatabasePort):
                     sub_type,
                     length,
                     scale,
+                    precision,
+                    character_length,
                     rel_null_flag,
                     field_null_flag,
                     update_flag,
@@ -244,7 +282,14 @@ class FirebirdRepository(DatabasePort):
                 columns.append(
                     Column(
                         name=name.strip() if name else name,
-                        type_name=_map_fb_type(type_code, sub_type, length, scale),
+                        type_name=_map_fb_type(
+                            type_code,
+                            sub_type,
+                            length,
+                            scale,
+                            precision,
+                            character_length,
+                        ),
                         nullable=not is_not_null,
                         is_primary_key=bool(pk_flag),
                         is_computed=update_flag is not None and update_flag == 0,
@@ -308,6 +353,15 @@ class FirebirdRepository(DatabasePort):
                     numeric_idx += 1
                     params[param_name] = numeric_value
                     predicates.append(_numeric_filter_predicate(col, param_name))
+
+            filter_boolean = _parse_filter_boolean(filter_text)
+            if filter_boolean is not None:
+                boolean_columns = [c for c in columns if c.type_name.upper() == "BOOLEAN"]
+                if boolean_columns:
+                    params["filter_boolean"] = filter_boolean
+                    predicates.extend(
+                        f"t.{_quote(col.name)} = :filter_boolean" for col in boolean_columns
+                    )
 
             if predicates:
                 params["filter_text"] = filter_text
@@ -541,6 +595,8 @@ class FirebirdRepository(DatabasePort):
                     "  f.RDB$FIELD_SUB_TYPE, "
                     "  f.RDB$FIELD_LENGTH, "
                     "  f.RDB$FIELD_SCALE, "
+                    "  f.RDB$FIELD_PRECISION, "
+                    "  f.RDB$CHARACTER_LENGTH, "
                     "  pp.RDB$PARAMETER_TYPE "
                     "FROM RDB$PROCEDURE_PARAMETERS pp "
                     "JOIN RDB$FIELDS f ON pp.RDB$FIELD_SOURCE = f.RDB$FIELD_NAME "
@@ -552,11 +608,27 @@ class FirebirdRepository(DatabasePort):
 
             params = []
             for row in result.fetchall():
-                name, type_code, sub_type, length, scale, param_type = row
+                (
+                    name,
+                    type_code,
+                    sub_type,
+                    length,
+                    scale,
+                    precision,
+                    character_length,
+                    param_type,
+                ) = row
                 params.append(
                     ProcedureParam(
                         name=name.strip() if name else name,
-                        type_name=_map_fb_type(type_code, sub_type, length, scale),
+                        type_name=_map_fb_type(
+                            type_code,
+                            sub_type,
+                            length,
+                            scale,
+                            precision,
+                            character_length,
+                        ),
                         param_type=param_type or 0,
                     )
                 )

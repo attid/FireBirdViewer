@@ -5,6 +5,8 @@ from fasthtml.common import *
 from src.domain.models import Column
 from src.interface.paths import url_path
 
+from .form_fields import boolean_select
+
 
 def _field_input_type(col: Column) -> tuple[str, str]:
     input_type = "text"
@@ -67,6 +69,17 @@ def insert_form(
         if prev_val:
             input_kwargs["value"] = prev_val
 
+        field_control = (
+            boolean_select(
+                f"col_{col.name}",
+                prev_val,
+                include_blank=True,
+                blank_label="Default",
+            )
+            if col.type_name.upper() == "BOOLEAN"
+            else Input(**input_kwargs)
+        )
+
         fields.append(
             Div(
                 Label(
@@ -74,7 +87,7 @@ def insert_form(
                     Span(col.type_name, cls="badge badge-xs badge-ghost ml-2"),
                     cls="label py-1",
                 ),
-                Input(**input_kwargs),
+                field_control,
                 cls="form-control",
             )
         )
@@ -155,7 +168,13 @@ def row_edit_form(
         if is_required:
             input_kwargs["required"] = True
 
-        if col.type_name.startswith(("VARCHAR", "CHAR")) and (
+        if col.type_name.upper() == "BOOLEAN":
+            field_control = boolean_select(
+                f"col_{col.name}",
+                current_value,
+                include_blank=False,
+            )
+        elif col.type_name.startswith(("VARCHAR", "CHAR")) and (
             len(html_value) > 120 or col.type_name.startswith("VARCHAR(2")
         ):
             textarea_kwargs = {
