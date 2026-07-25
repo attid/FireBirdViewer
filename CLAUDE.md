@@ -2,8 +2,18 @@
 
 ## Governing contract
 - **AI_FIRST.md** is the primary contract for this repo. Follow it 100%.
-- Before any non-trivial task: create exec-plan in `docs/exec-plans/active/`.
-- After task completion: move plan to `docs/exec-plans/completed/` with checkmarks.
+- **AGENTS.md** is the auto-loaded entry point and mandatory change approval gate.
+- Before ANY file change: inspect read-only, then present the plan, exact file list,
+  verification, and risks in chat.
+- STOP and wait for explicit user approval after presenting that plan.
+- The initial request is not approval of an unseen plan.
+- After approval: create the agreed exec-plan in `docs/exec-plans/active/`,
+  except for Markdown-only tasks.
+- If another file becomes necessary, STOP and obtain approval for the revised
+  complete file list before touching it.
+- Before the task's final commit: move its plan to
+  `docs/exec-plans/completed/` with checkmarks.
+- Never create the final commit while the task plan remains in `active/`.
 - Definition of Done: code + tests + docs updated + `just check` green.
 
 ## Architecture
