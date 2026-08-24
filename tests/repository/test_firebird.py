@@ -82,6 +82,29 @@ class _FakeEngine:
         return self.conn
 
 
+class _RawQueryResult:
+    returns_rows = True
+
+    def keys(self):
+        return ["CRRESULT"]
+
+    def fetchall(self):
+        return [["OK"]]
+
+
+class _RawQueryConnection(_FakeConnection):
+    def __init__(self):
+        super().__init__()
+        self.raw_sql: list[str] = []
+
+    async def execute(self, statement, params=None):
+        raise AssertionError("arbitrary SQL must bypass SQLAlchemy text parsing")
+
+    async def exec_driver_sql(self, sql: str):
+        self.raw_sql.append(sql)
+        return _RawQueryResult()
+
+
 async def _capture_filter_sql(monkeypatch, columns: list[Column], filter_text: str):
     repo = _repo()
     engine = _FakeEngine()
@@ -97,6 +120,34 @@ async def _capture_filter_sql(monkeypatch, columns: list[Column], filter_text: s
 
     await repo.get_table_data("ALL_TYPES", filter_text=filter_text)
     return engine.conn.calls[0]
+
+
+@pytest.mark.asyncio
+async def test_execute_query_passes_firebird_psql_variables_to_driver(monkeypatch):
+    repo = _repo()
+    engine = _FakeEngine()
+    engine.conn = _RawQueryConnection()
+    sql = """execute block
+returns (CRRESULT varchar(20))
+as
+declare variable v_name varchar(20);
+begin
+  v_name = 'OK';
+  crresult = :v_name;
+  suspend;
+end"""
+
+    async def fake_get_engine():
+        return engine
+
+    monkeypatch.setattr(repo, "_get_engine", fake_get_engine)
+
+    result = await repo.execute_query(sql)
+
+    assert result.error == ""
+    assert result.columns == ["CRRESULT"]
+    assert result.rows == [["OK"]]
+    assert engine.conn.raw_sql == [sql]
 
 
 @pytest.mark.parametrize(

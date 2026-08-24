@@ -705,7 +705,7 @@ class FirebirdRepository(DatabasePort):
         engine = await self._get_engine()
         try:
             async with engine.connect() as conn:
-                result = await conn.execute(text(sql))
+                result = await conn.exec_driver_sql(sql)
                 if result.returns_rows:
                     cols = list(result.keys())
                     raw_rows = result.fetchall()

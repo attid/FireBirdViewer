@@ -13,6 +13,8 @@ build/
 # IDE
 .idea/
 .vscode/
+.belief_map.sexp
+.belief_map_cache.json
 *.swp
 *.swo
 *~
