@@ -81,12 +81,14 @@ document.addEventListener('htmx:afterSwap', function() {
     // Delegate click on editable cells (works after HTMX swaps)
     document.addEventListener('click', function(e) {
         const cell = e.target.closest('.editable-cell');
-        if (!cell || cell.querySelector('input')) return; // already editing
+        if (!cell || cell.querySelector('.inline-cell-editor')) return;
 
         const dbKey = cell.dataset.dbKey;
         const column = cell.dataset.column;
+        const columnType = cell.dataset.type || '';
         const tableName = cell.dataset.table;
         const rawValue = cell.dataset.value || '';
+        const isBoolean = columnType.toUpperCase() === 'BOOLEAN';
 
         // Remember original display text
         const originalText = cell.textContent;
@@ -96,16 +98,28 @@ document.addEventListener('htmx:afterSwap', function() {
             position: cell.style.position,
         };
 
-        // Create input
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.value = rawValue;
-        input.className = 'input input-bordered input-xs w-full';
-        input.setAttribute('aria-label', `Edit ${column}`);
-        input.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
-        input.style.fontSize = '16px';
-        input.style.minWidth = '0';
-        input.style.width = '100%';
+        let control;
+        if (isBoolean) {
+            control = document.createElement('select');
+            control.className = 'select select-bordered select-xs w-full';
+            ['TRUE', 'FALSE'].forEach(function(value) {
+                const option = document.createElement('option');
+                option.value = value;
+                option.textContent = value;
+                control.appendChild(option);
+            });
+            control.value = rawValue.toLowerCase() === 'false' ? 'FALSE' : 'TRUE';
+        } else {
+            control = document.createElement('input');
+            control.type = 'text';
+            control.value = rawValue;
+            control.className = 'input input-bordered input-xs w-full';
+        }
+        control.setAttribute('aria-label', `Edit ${column}`);
+        control.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
+        control.style.fontSize = '16px';
+        control.style.minWidth = '0';
+        control.style.width = '100%';
 
         const hint = document.createElement('div');
         hint.textContent = 'Enter save / Esc cancel';
@@ -117,15 +131,16 @@ document.addEventListener('htmx:afterSwap', function() {
 
         const editor = document.createElement('div');
         const editorChars = Math.max(32, Math.min(String(rawValue).length + 4, 80));
-        editor.style.fontFamily = input.style.fontFamily;
-        editor.style.fontSize = input.style.fontSize;
+        editor.className = 'inline-cell-editor';
+        editor.style.fontFamily = control.style.fontFamily;
+        editor.style.fontSize = control.style.fontSize;
         editor.style.width = `${editorChars}ch`;
         editor.style.maxWidth = 'min(80ch, 70vw)';
         editor.style.boxSizing = 'border-box';
         editor.style.padding = '2px';
         editor.style.border = '2px solid rgba(59, 130, 246, 0.65)';
         editor.style.boxShadow = 'inset 0 0 0 1px rgba(59, 130, 246, 0.35)';
-        editor.appendChild(input);
+        editor.appendChild(control);
         editor.appendChild(hint);
 
         // Replace cell content
@@ -133,8 +148,10 @@ document.addEventListener('htmx:afterSwap', function() {
         cell.appendChild(editor);
         cell.style.position = 'relative';
         cell.style.backgroundColor = 'rgba(59, 130, 246, 0.08)';
-        input.focus();
-        input.setSelectionRange(0, 0);
+        control.focus();
+        if (control.tagName === 'INPUT') {
+            control.setSelectionRange(0, 0);
+        }
 
         let settled = false;
 
@@ -155,7 +172,7 @@ document.addEventListener('htmx:afterSwap', function() {
             if (settled) return;
             settled = true;
 
-            const newValue = input.value;
+            const newValue = control.value;
             // Show saving state
             restoreEditStyle();
             cell.textContent = '...';
@@ -202,7 +219,7 @@ document.addEventListener('htmx:afterSwap', function() {
             });
         }
 
-        input.addEventListener('keydown', function(e) {
+        control.addEventListener('keydown', function(e) {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 save();
@@ -212,7 +229,11 @@ document.addEventListener('htmx:afterSwap', function() {
             }
         });
 
-        input.addEventListener('blur', function() {
+        if (isBoolean) {
+            control.addEventListener('change', save);
+        }
+
+        control.addEventListener('blur', function() {
             // Small delay to allow click-away to register
             setTimeout(function() { cancel(); }, 150);
         });

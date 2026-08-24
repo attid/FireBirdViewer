@@ -171,6 +171,19 @@ def test_editable_table_cells_have_visible_affordance(monkeypatch):
     assert 'title="Click to edit NAME"' in html
 
 
+def test_boolean_table_cell_exposes_type_for_inline_editor():
+    data = PagedData(
+        columns=[Column(name="ALARM_CHECK", type_name="BOOLEAN")],
+        rows=[{"ALARM_CHECK": True, "_db_key": "abc"}],
+        total_count=1,
+    )
+
+    html = str(data_table(data, "T_ALARM", "table"))
+
+    assert 'data-column="ALARM_CHECK"' in html
+    assert 'data-type="BOOLEAN"' in html
+
+
 def test_empty_filtered_table_keeps_filter_controls(monkeypatch):
     monkeypatch.setenv("APP_ROOT_PATH", "/viewer")
 
@@ -210,11 +223,21 @@ def test_inline_edit_js_shows_editing_hint_and_focus_style():
     assert "Edit ${column}" in js
     assert "editor.style.border = '2px solid" in js
     assert "editor.style.boxSizing = 'border-box'" in js
-    assert "editor.style.fontFamily = input.style.fontFamily" in js
-    assert "editor.style.fontSize = input.style.fontSize" in js
-    assert "input.style.fontSize = '16px'" in js
-    assert "input.style.minWidth = '0'" in js
+    assert "editor.style.fontFamily = control.style.fontFamily" in js
+    assert "editor.style.fontSize = control.style.fontSize" in js
+    assert "control.style.fontSize = '16px'" in js
+    assert "control.style.minWidth = '0'" in js
     assert "restoreEditStyle" in js
+
+
+def test_inline_edit_js_uses_select_for_boolean_columns():
+    js = Path("static/app.js").read_text(encoding="utf-8")
+
+    assert "cell.querySelector('.inline-cell-editor')" in js
+    assert "const columnType = cell.dataset.type || ''" in js
+    assert "columnType.toUpperCase() === 'BOOLEAN'" in js
+    assert "document.createElement('select')" in js
+    assert "control.addEventListener('change', save)" in js
 
 
 def test_row_edit_form_supports_null_and_date_inputs(monkeypatch):

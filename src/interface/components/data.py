@@ -85,6 +85,7 @@ def data_table(data: PagedData, object_name: str, object_type: str):
                 )
                 td_attrs["data_db_key"] = db_key
                 td_attrs["data_column"] = col.name
+                td_attrs["data_type"] = col.type_name
                 td_attrs["data_table"] = object_name
                 td_attrs["title"] = f"Click to edit {col.name}"
                 raw_val = str(val) if val is not None else ""
