@@ -148,7 +148,10 @@ def dashboard_layout(tables: list[str], views: list[str], procedures: list[str],
                         cls="btn btn-outline btn-error btn-sm w-full mt-4",
                     ),
                 ),
-                cls="w-64 min-w-64 bg-base-100 rounded-box p-4 shadow overflow-y-auto max-h-[80vh]",
+                cls=(
+                    "w-full min-w-0 lg:w-64 lg:min-w-64 bg-base-100 rounded-box p-4 "
+                    "shadow overflow-y-auto lg:max-h-[80vh]"
+                ),
             ),
             # Content area
             Div(
@@ -160,9 +163,9 @@ def dashboard_layout(tables: list[str], views: list[str], procedures: list[str],
                     cls="card bg-base-100 shadow p-8 text-center",
                 ),
                 id="content-area",
-                cls="flex-1 min-w-0",
+                cls="flex-1 min-w-0 w-full",
             ),
-            cls="container mx-auto max-w-7xl px-4 flex gap-4",
+            cls="container mx-auto max-w-7xl px-4 flex flex-col lg:flex-row gap-4",
         ),
         Div(id="toast-container", cls="toast toast-end toast-top z-50"),
         cls="min-h-screen bg-base-200",

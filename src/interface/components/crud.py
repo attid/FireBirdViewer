@@ -6,6 +6,7 @@ from src.domain.models import Column
 from src.interface.paths import url_path
 
 from .form_fields import boolean_select
+from .table_navigation import row_edit_url, table_url
 
 
 def _field_input_type(col: Column) -> tuple[str, str]:
@@ -132,6 +133,11 @@ def row_edit_form(
     db_key: str,
     values: dict[str, object] | None = None,
     error: str = "",
+    *,
+    page: int = 0,
+    sort: str = "",
+    filter_text: str = "",
+    saved: bool = False,
 ):
     """Render a full-row edit form.
 
@@ -224,26 +230,55 @@ def row_edit_form(
             cls="alert alert-error shadow-lg mb-4 text-sm",
         )
 
+    saved_block = ""
+    if saved:
+        saved_block = Div(
+            Span("Saved"),
+            cls="alert alert-success shadow mb-4 py-2 text-sm",
+        )
+
     return Div(
         Div(
             H3(f"Edit {table_name} row", cls="text-lg font-bold"),
             cls="flex items-center gap-3 mb-3",
         ),
         error_block,
+        saved_block,
         Form(
             Div(*fields, cls="grid grid-cols-1 lg:grid-cols-2 gap-x-4 gap-y-2"),
             Div(
-                Button("Save", type="submit", cls="btn btn-primary btn-sm"),
+                Button(
+                    "Save & return",
+                    type="submit",
+                    name="action",
+                    value="return",
+                    cls="btn btn-primary btn-sm",
+                ),
+                Button(
+                    "Save",
+                    type="submit",
+                    name="action",
+                    value="stay",
+                    cls="btn btn-outline btn-sm",
+                ),
                 A(
                     "Cancel",
-                    hx_get=url_path(f"/object/table/{table_name}"),
+                    hx_get=table_url(table_name, page, sort, filter_text),
                     hx_target="#content-area",
                     hx_swap="innerHTML",
+                    hx_push_url="true",
                     cls="btn btn-ghost btn-sm",
                 ),
                 cls="flex gap-2 mt-4",
             ),
-            hx_post=url_path(f"/object/table/{table_name}/row/{db_key}/edit"),
+            hx_post=row_edit_url(
+                table_name,
+                db_key,
+                page,
+                sort,
+                filter_text,
+                submit=True,
+            ),
             hx_target="#content-area",
             hx_swap="innerHTML",
         ),

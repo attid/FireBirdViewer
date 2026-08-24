@@ -50,6 +50,7 @@ from src.interface.components.layout import (
 )
 from src.interface.components.procedure import error_alert, procedure_result, procedure_view
 from src.interface.components.sql import query_result, sql_editor
+from src.interface.components.table_navigation import table_url
 from src.interface.paths import root_path, url_path
 from src.interface.session import (
     create_session_token,
@@ -324,7 +325,14 @@ async def delete(request: Request, table_name: str, db_key: str):
 
 
 @rt(url_path("/object/table/{table_name}/row/{db_key}/edit-form"))
-async def get(request: Request, table_name: str, db_key: str):
+async def get(
+    request: Request,
+    table_name: str,
+    db_key: str,
+    page: int = 0,
+    sort: str = "",
+    filter: str = "",
+):
     """Show a full-row edit form for a table row."""
     repo = _get_repo(request)
     if repo is None:
@@ -335,7 +343,15 @@ async def get(request: Request, table_name: str, db_key: str):
         values = await GetRowUseCase(repo).execute(table_name, db_key)
         if not values:
             return error_alert(f"Row not found in {table_name}.")
-        return row_edit_form(columns, table_name, db_key, values)
+        return row_edit_form(
+            columns,
+            table_name,
+            db_key,
+            values,
+            page=page,
+            sort=sort,
+            filter_text=filter,
+        )
     except Exception as exc:
         return error_alert(f"Failed to load row: {_clean_db_error(exc)}")
     finally:
@@ -343,7 +359,14 @@ async def get(request: Request, table_name: str, db_key: str):
 
 
 @rt(url_path("/object/table/{table_name}/row/{db_key}/edit"))
-async def post(request: Request, table_name: str, db_key: str):
+async def post(
+    request: Request,
+    table_name: str,
+    db_key: str,
+    page: int = 0,
+    sort: str = "",
+    filter: str = "",
+):
     """Update several columns from the full-row edit form."""
     repo = _get_repo(request)
     if repo is None:
@@ -353,6 +376,7 @@ async def post(request: Request, table_name: str, db_key: str):
     display_values: dict[str, object] = {}
     try:
         form = await request.form()
+        action = str(form.get("action", "return"))
         columns = await GetColumnsUseCase(repo).execute(table_name)
         editable_columns = {
             col.name: col for col in columns if not col.is_computed and col.type_name != "BLOB"
@@ -374,8 +398,30 @@ async def post(request: Request, table_name: str, db_key: str):
         for col_name, value in submitted.items():
             await update_uc.execute(table_name, db_key, col_name, value)
 
-        data = await ViewTableDataUseCase(repo).execute(table_name, page=0, page_size=50)
-        return data_table(data, table_name, "table")
+        if action == "stay":
+            persisted_values = await GetRowUseCase(repo).execute(table_name, db_key)
+            return row_edit_form(
+                columns,
+                table_name,
+                db_key,
+                persisted_values,
+                page=page,
+                sort=sort,
+                filter_text=filter,
+                saved=True,
+            )
+
+        data = await ViewTableDataUseCase(repo).execute(
+            table_name,
+            page=page,
+            page_size=50,
+            sort_column=sort or None,
+            filter_text=filter,
+        )
+        return (
+            HttpHeader("HX-Push-Url", table_url(table_name, page, sort, filter)),
+            data_table(data, table_name, "table", saved_db_key=db_key),
+        )
     except Exception as exc:
         try:
             columns = await GetColumnsUseCase(repo).execute(table_name)
@@ -385,6 +431,9 @@ async def post(request: Request, table_name: str, db_key: str):
                 db_key,
                 values=display_values,
                 error=_clean_db_error(exc),
+                page=page,
+                sort=sort,
+                filter_text=filter,
             )
         except Exception:
             return error_alert(f"Update failed: {_clean_db_error(exc)}")

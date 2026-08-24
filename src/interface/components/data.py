@@ -7,8 +7,15 @@ from fasthtml.common import *
 from src.domain.models import PagedData
 from src.interface.paths import url_path
 
+from .table_navigation import row_edit_url
 
-def data_table(data: PagedData, object_name: str, object_type: str):
+
+def data_table(
+    data: PagedData,
+    object_name: str,
+    object_type: str,
+    saved_db_key: str = "",
+):
     """Render a paginated data table with sort controls."""
     can_delete = object_type == "table"
 
@@ -52,9 +59,16 @@ def data_table(data: PagedData, object_name: str, object_type: str):
                     Div(
                         A(
                             "Edit",
-                            hx_get=url_path(f"/object/table/{object_name}/row/{db_key}/edit-form"),
+                            hx_get=row_edit_url(
+                                object_name,
+                                db_key,
+                                data.page,
+                                data.sort_column,
+                                data.filter_text,
+                            ),
                             hx_target="#content-area",
                             hx_swap="innerHTML",
+                            hx_push_url="true",
                             cls="btn btn-ghost btn-xs",
                         ),
                         Button(
@@ -94,7 +108,11 @@ def data_table(data: PagedData, object_name: str, object_type: str):
                 td_attrs["cls"] = f"text-xs {null_cls}"
 
             cells.append(Td(display_val, **td_attrs))
-        body_rows.append(Tr(*cells, cls="hover"))
+        row_attrs: dict[str, str] = {"cls": "hover"}
+        if saved_db_key and db_key == saved_db_key:
+            row_attrs["cls"] = "hover bg-success/10"
+            row_attrs["data_saved_row"] = "true"
+        body_rows.append(Tr(*cells, **row_attrs))
 
     total_pages = max(1, (data.total_count + data.page_size - 1) // data.page_size)
     pagination = _pagination_controls(data, total_pages, object_name, object_type)
@@ -108,6 +126,27 @@ def data_table(data: PagedData, object_name: str, object_type: str):
             hx_target="#content-area",
             hx_swap="innerHTML",
             cls="btn btn-primary btn-xs",
+        )
+
+    saved_notice = ""
+    if saved_db_key:
+        saved_notice = Div(
+            Span("Saved"),
+            A(
+                "Edit again",
+                hx_get=row_edit_url(
+                    object_name,
+                    saved_db_key,
+                    data.page,
+                    data.sort_column,
+                    data.filter_text,
+                ),
+                hx_target="#content-area",
+                hx_swap="innerHTML",
+                hx_push_url="true",
+                cls="btn btn-success btn-xs",
+            ),
+            cls="alert alert-success py-2 mb-3 flex items-center justify-between",
         )
 
     table_content = Div(
@@ -132,6 +171,7 @@ def data_table(data: PagedData, object_name: str, object_type: str):
             cls="flex items-center gap-3 mb-3",
         ),
         _object_tabs(object_name, object_type, active_tab="data"),
+        saved_notice,
         table_filter,
         table_content,
         pagination,

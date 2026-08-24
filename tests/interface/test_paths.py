@@ -47,6 +47,14 @@ def test_components_prefix_htmx_and_navigation_urls(monkeypatch):
     assert 'hx-post="/viewer/ai/ask"' in ai_html
 
 
+def test_dashboard_stacks_sidebar_above_content_on_small_screens():
+    html = str(dashboard_layout(["EMPLOYEE"], [], [], "db"))
+
+    assert "flex-col lg:flex-row" in html
+    assert "w-full min-w-0 lg:w-64 lg:min-w-64" in html
+    assert "max-h-[40vh]" not in html
+
+
 def test_page_exposes_app_root_path_meta(monkeypatch):
     monkeypatch.setenv("APP_ROOT_PATH", "/viewer")
 
@@ -86,7 +94,7 @@ def test_object_components_prefix_action_urls(monkeypatch):
 
     assert 'hx-get="/db/object/table/EMPLOYEE?page=0&amp;sort=ID"' in table_html
     assert 'hx-delete="/db/object/table/EMPLOYEE/row/abc"' in table_html
-    assert 'hx-get="/db/object/table/EMPLOYEE/row/abc/edit-form"' in table_html
+    assert 'hx-get="/db/object/table/EMPLOYEE/row/abc/edit-form?page=0"' in table_html
     assert 'hx-get="/db/object/table/EMPLOYEE/insert-form"' in table_html
     assert 'hx-post="/db/object/table/EMPLOYEE/row"' in insert_html
     assert 'hx-post="/db/ai/execute"' in ai_msg_html
@@ -152,6 +160,48 @@ def test_table_filter_and_pagination_preserve_state(monkeypatch):
     assert "Page 2 of 3" in html
     assert 'hx-get="/viewer/object/table/EMPLOYEE?page=0&amp;sort=NAME&amp;filter=ali"' in html
     assert 'hx-get="/viewer/object/table/EMPLOYEE?page=2&amp;sort=NAME&amp;filter=ali"' in html
+
+
+def test_full_row_edit_link_preserves_table_state_and_history(monkeypatch):
+    monkeypatch.setenv("APP_ROOT_PATH", "/viewer")
+    data = PagedData(
+        columns=[Column(name="NAME", type_name="VARCHAR(50)")],
+        rows=[{"NAME": "Alice", "_db_key": "abc"}],
+        total_count=120,
+        page=2,
+        sort_column="NAME",
+        filter_text="ali",
+    )
+
+    html = str(data_table(data, "EMPLOYEE", "table"))
+
+    assert (
+        'hx-get="/viewer/object/table/EMPLOYEE/row/abc/edit-form?'
+        'page=2&amp;sort=NAME&amp;filter=ali"' in html
+    )
+    assert 'hx-push-url="true"' in html
+
+
+def test_saved_table_keeps_edit_again_action_and_highlights_row(monkeypatch):
+    monkeypatch.setenv("APP_ROOT_PATH", "/viewer")
+    data = PagedData(
+        columns=[Column(name="NAME", type_name="VARCHAR(50)")],
+        rows=[{"NAME": "Alice", "_db_key": "abc"}],
+        total_count=1,
+        page=2,
+        sort_column="NAME",
+        filter_text="ali",
+    )
+
+    html = str(data_table(data, "EMPLOYEE", "table", saved_db_key="abc"))
+
+    assert "Saved" in html
+    assert "Edit again" in html
+    assert (
+        'hx-get="/viewer/object/table/EMPLOYEE/row/abc/edit-form?'
+        'page=2&amp;sort=NAME&amp;filter=ali"' in html
+    )
+    assert 'data-saved-row="true"' in html
 
 
 def test_editable_table_cells_have_visible_affordance(monkeypatch):
@@ -260,7 +310,7 @@ def test_row_edit_form_supports_null_and_date_inputs(monkeypatch):
     html = str(row_edit_form(columns, "BILL_PAY", "aabb", values))
 
     assert "Edit BILL_PAY row" in html
-    assert 'hx-post="/viewer/object/table/BILL_PAY/row/aabb/edit"' in html
+    assert 'hx-post="/viewer/object/table/BILL_PAY/row/aabb/edit?page=0"' in html
     assert 'name="col_ID"' in html
     assert "required" in html
     assert 'name="null_NOTE"' in html
@@ -283,3 +333,31 @@ def test_row_edit_form_renders_boolean_select_with_null_control():
     assert '<option value="FALSE">FALSE</option>' in html
     assert '<option value="">' not in html
     assert 'name="null_ACTIVE"' in html
+
+
+def test_row_edit_form_has_stay_and_return_actions_with_table_state(monkeypatch):
+    monkeypatch.setenv("APP_ROOT_PATH", "/viewer")
+    columns = [Column(name="NOTE", type_name="VARCHAR(2000)")]
+
+    html = str(
+        row_edit_form(
+            columns,
+            "CHAT",
+            "aabb",
+            {"NOTE": "long text"},
+            page=2,
+            sort="ID",
+            filter_text="needle",
+            saved=True,
+        )
+    )
+
+    assert "Saved" in html
+    assert 'name="action" value="return"' in html
+    assert "Save &amp; return" in html
+    assert 'name="action" value="stay"' in html
+    assert (
+        'hx-post="/viewer/object/table/CHAT/row/aabb/edit?'
+        'page=2&amp;sort=ID&amp;filter=needle"' in html
+    )
+    assert 'hx-get="/viewer/object/table/CHAT?page=2&amp;sort=ID&amp;filter=needle"' in html
