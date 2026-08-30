@@ -7,6 +7,7 @@ import pytest
 
 from src.application.ports import DatabasePort
 from src.application.use_cases import (
+    ContinueAiRelayUseCase,
     DeleteRowUseCase,
     ExecuteAiDmlUseCase,
     ExecuteProcedureUseCase,
@@ -14,10 +15,20 @@ from src.application.use_cases import (
     GetRowUseCase,
     InsertRowUseCase,
     ListObjectsUseCase,
+    StartAiRelayUseCase,
     UpdateCellUseCase,
     ViewTableDataUseCase,
 )
-from src.domain.models import Column, ConnectionParams, PagedData, ProcedureInfo, QueryResult
+from src.domain.models import (
+    AiAgentStep,
+    AiModelResponse,
+    AiModelResponseMessage,
+    Column,
+    ConnectionParams,
+    PagedData,
+    ProcedureInfo,
+    QueryResult,
+)
 
 
 class FakeDatabasePort(DatabasePort):
@@ -274,6 +285,49 @@ async def test_execute_query_whitespace_only_raises():
         await use_case.execute("   \n  ")
 
 
+def test_start_ai_relay_use_case_forwards_non_secret_settings():
+    captured = {}
+
+    def start(question, **kwargs):
+        captured.update(question=question, **kwargs)
+        return AiAgentStep(status="needs_model", state="signed")
+
+    result = StartAiRelayUseCase(start).execute(
+        "Question",
+        base_url="https://llm.example/v1",
+        model="model-a",
+        history_token="history",
+        context="context",
+    )
+
+    assert result.state == "signed"
+    assert captured == {
+        "question": "Question",
+        "base_url": "https://llm.example/v1",
+        "model": "model-a",
+        "history_token": "history",
+        "context": "context",
+    }
+
+
+@pytest.mark.asyncio
+async def test_continue_ai_relay_use_case_injects_database():
+    db = FakeDatabasePort()
+
+    async def continue_turn(state, response, received_db):
+        assert state == "signed"
+        assert response.message.content == "Done"
+        assert received_db is db
+        return AiAgentStep(status="complete", state="next", content="Done")
+
+    result = await ContinueAiRelayUseCase(db, continue_turn).execute(
+        "signed",
+        AiModelResponse(message=AiModelResponseMessage(content="Done")),
+    )
+
+    assert result.content == "Done"
+
+
 @pytest.mark.asyncio
 async def test_execute_ai_dml():
     db = FakeDatabasePort()
@@ -309,17 +363,18 @@ async def test_execute_ai_dml_rejects_select():
     db = FakeDatabasePort()
     use_case = ExecuteAiDmlUseCase(db)
 
-    with pytest.raises(ValueError, match="Only INSERT, UPDATE, DELETE, or MERGE"):
+    with pytest.raises(ValueError, match="data-modifying or schema-modifying"):
         await use_case.execute("SELECT * FROM USERS")
 
 
 @pytest.mark.asyncio
-async def test_execute_ai_dml_rejects_ddl():
+async def test_execute_ai_dml_allows_ddl():
     db = FakeDatabasePort()
     use_case = ExecuteAiDmlUseCase(db)
 
-    with pytest.raises(ValueError, match="Only INSERT, UPDATE, DELETE, or MERGE"):
-        await use_case.execute("DROP TABLE USERS")
+    result = await use_case.execute("DROP TABLE USERS")
+
+    assert result.row_count == 1
 
 
 @pytest.mark.asyncio

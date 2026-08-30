@@ -1,33 +1,38 @@
-"""AI SQL Assistant agent using PydanticAI.
-
-Wraps an LLM (via OpenAI-compatible API) with tools for schema introspection
-and read-only query execution.  DML is never executed by the agent -- it can
-only *suggest* DML SQL text for the user to confirm.
-
-This module lives in the repository layer because it talks to an external
-service (the LLM API) and to the database (via DatabasePort).
-"""
+"""Provider-neutral AI SQL Assistant loop and database tools."""
 
 from __future__ import annotations
 
+import base64
+import json
+import os
 import re
-from dataclasses import dataclass
+from hashlib import sha256
 from typing import TYPE_CHECKING
 
-from pydantic_ai import Agent, RunContext
-from pydantic_ai.messages import ModelMessagesTypeAdapter
-from pydantic_ai.models.openai import OpenAIModel
-from pydantic_ai.providers.openai import OpenAIProvider
+from cryptography.fernet import Fernet, InvalidToken
+from pydantic import BaseModel, ValidationError
 
-from src.domain.models import AiSettings, QueryResult
+from src.domain.models import (
+    AiAgentStep,
+    AiChatMessage,
+    AiModelRequest,
+    AiModelResponse,
+    AiSettings,
+    AiToolDefinition,
+    QueryResult,
+)
+from src.repository.ai_transport import request_model
 
 if TYPE_CHECKING:
     from src.application.ports import DatabasePort
 
-_DML_PATTERN = re.compile(
-    r"^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|MERGE)\b",
+_MUTATING_PATTERN = re.compile(
+    r"^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|MERGE|EXECUTE|RECREATE)\b",
     re.IGNORECASE,
 )
+_READ_ONLY_PATTERN = re.compile(r"^\s*(SELECT|WITH)\b", re.IGNORECASE)
+_MAX_AGENT_STEPS = 8
+_STATE_MAX_AGE = 86400
 
 _SYSTEM_PROMPT = """\
 You are a Firebird SQL assistant.  The user describes data they want to see or
@@ -52,11 +57,13 @@ Rules:
 """
 
 
-@dataclass
-class AgentDeps:
-    """Runtime dependencies injected into every agent tool call."""
+class _AgentState(BaseModel):
+    """Authenticated state carried between stateless agent steps."""
 
-    db: DatabasePort
+    base_url: str
+    model: str
+    messages: list[AiChatMessage]
+    step_count: int = 0
 
 
 def _is_dml(sql: str) -> bool:
@@ -66,25 +73,11 @@ def _is_dml(sql: str) -> bool:
     """
     # Strip leading comments and blank lines to find the first real statement
     stripped = re.sub(r"^\s*--[^\n]*\n?", "", sql, flags=re.MULTILINE).lstrip()
-    return bool(_DML_PATTERN.match(stripped))
+    return bool(_MUTATING_PATTERN.match(stripped))
 
 
-# ---------------------------------------------------------------------------
-# Agent definition (singleton -- stateless, model is set per-call)
-# ---------------------------------------------------------------------------
-
-_agent: Agent[AgentDeps, str] = Agent(
-    system_prompt=_SYSTEM_PROMPT,
-    deps_type=AgentDeps,
-    retries=1,
-    defer_model_check=True,
-)
-
-
-@_agent.tool
-async def get_schema(ctx: RunContext[AgentDeps]) -> dict[str, list[str]]:
+async def _get_schema(db: DatabasePort) -> dict[str, list[str]]:
     """Return the database schema: {table_or_view_name: [column_names]}."""
-    db = ctx.deps.db
     schema: dict[str, list[str]] = {}
     for name in await db.list_tables() + await db.list_views():
         try:
@@ -95,8 +88,7 @@ async def get_schema(ctx: RunContext[AgentDeps]) -> dict[str, list[str]]:
     return schema
 
 
-@_agent.tool
-async def run_select(ctx: RunContext[AgentDeps], sql: str) -> str:
+async def _run_select(db: DatabasePort, sql: str) -> str:
     """Execute a read-only SELECT query and return the results as text.
 
     Args:
@@ -105,14 +97,14 @@ async def run_select(ctx: RunContext[AgentDeps], sql: str) -> str:
     Returns:
         A text representation of the query results.
     """
-    # Safety: refuse DML
-    if _is_dml(sql):
+    stripped = re.sub(r"^\s*--[^\n]*\n?", "", sql, flags=re.MULTILINE).lstrip()
+    if not _READ_ONLY_PATTERN.match(stripped) or _is_dml(stripped):
         return (
-            "ERROR: I cannot execute data-modifying statements. "
+            "ERROR: I cannot execute this statement automatically. "
             "Please show the SQL to the user and ask them to confirm execution."
         )
 
-    result = await ctx.deps.db.execute_query(sql)
+    result = await db.execute_query(sql)
     if result.error:
         return f"Query error: {result.error}"
 
@@ -146,9 +138,139 @@ def _format_query_result(result: QueryResult) -> str:
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
+def _state_fernet() -> Fernet:
+    secret = os.environ.get("SESSION_SECRET_KEY", "change-me-in-production")
+    key = base64.urlsafe_b64encode(sha256(secret.encode("utf-8")).digest())
+    return Fernet(key)
+
+
+def _encode_state(state: _AgentState) -> str:
+    return _state_fernet().encrypt(state.model_dump_json().encode("utf-8")).decode("ascii")
+
+
+def _decode_state(token: str) -> _AgentState:
+    try:
+        payload = _state_fernet().decrypt(token.encode("ascii"), ttl=_STATE_MAX_AGE)
+        return _AgentState.model_validate_json(payload)
+    except (InvalidToken, UnicodeEncodeError, ValidationError, ValueError) as exc:
+        msg = "Invalid AI relay state"
+        raise ValueError(msg) from exc
+
+
+def _tools() -> list[AiToolDefinition]:
+    return [
+        AiToolDefinition(
+            name="get_schema",
+            description="Return database tables, views, and their column names.",
+            parameters={"type": "object", "properties": {}, "additionalProperties": False},
+        ),
+        AiToolDefinition(
+            name="run_select",
+            description="Execute one read-only Firebird SELECT query.",
+            parameters={
+                "type": "object",
+                "properties": {"sql": {"type": "string"}},
+                "required": ["sql"],
+                "additionalProperties": False,
+            },
+        ),
+    ]
+
+
+def _request(state: _AgentState) -> AiModelRequest:
+    return AiModelRequest(
+        base_url=state.base_url,
+        model=state.model,
+        messages=state.messages,
+        tools=_tools(),
+    )
+
+
+def start_agent_turn(
+    question: str,
+    *,
+    base_url: str,
+    model: str,
+    history_token: str = "",
+    context: str = "",
+) -> AiAgentStep:
+    """Start a user turn and return the first provider request."""
+    if history_token:
+        previous = _decode_state(history_token)
+        messages = previous.messages
+    else:
+        messages = [AiChatMessage(role="system", content=_SYSTEM_PROMPT)]
+
+    user_content = question
+    if context:
+        user_content = (
+            "Context from the previous user-confirmed SQL execution:\n"
+            f"{context}\n\nUser question:\n{question}"
+        )
+    state = _AgentState(
+        base_url=base_url,
+        model=model,
+        messages=[*messages, AiChatMessage(role="user", content=user_content)],
+    )
+    token = _encode_state(state)
+    return AiAgentStep(status="needs_model", state=token, request=_request(state))
+
+
+async def _execute_tool(name: str, arguments: str, db: DatabasePort) -> str:
+    try:
+        parsed = json.loads(arguments or "{}")
+    except json.JSONDecodeError:
+        return "ERROR: Tool arguments are not valid JSON."
+    if not isinstance(parsed, dict):
+        return "ERROR: Tool arguments must be a JSON object."
+    if name == "get_schema":
+        return json.dumps(await _get_schema(db), ensure_ascii=False)
+    if name == "run_select":
+        sql = parsed.get("sql")
+        if not isinstance(sql, str):
+            return "ERROR: run_select requires a string sql argument."
+        return await _run_select(db, sql)
+    return f"ERROR: Unknown tool: {name}"
+
+
+async def continue_agent_turn(
+    state_token: str,
+    response: AiModelResponse,
+    db: DatabasePort,
+) -> AiAgentStep:
+    """Consume one model response and either execute tools or finish the turn."""
+    state = _decode_state(state_token)
+    state.step_count += 1
+    message = response.message
+    state.messages.append(
+        AiChatMessage(
+            role="assistant",
+            content=message.content,
+            tool_calls=message.tool_calls,
+        )
+    )
+
+    if message.tool_calls:
+        if state.step_count >= _MAX_AGENT_STEPS:
+            content = "The AI stopped after too many tool steps. Please narrow the question."
+            state.messages.append(AiChatMessage(role="assistant", content=content))
+            return AiAgentStep(status="complete", state=_encode_state(state), content=content)
+        for call in message.tool_calls:
+            result = await _execute_tool(call.name, call.arguments, db)
+            state.messages.append(AiChatMessage(role="tool", content=result, tool_call_id=call.id))
+        token = _encode_state(state)
+        return AiAgentStep(status="needs_model", state=token, request=_request(state))
+
+    content = message.content
+    sql = _extract_sql(content)
+    token = _encode_state(state)
+    return AiAgentStep(
+        status="complete",
+        state=token,
+        content=content,
+        sql=sql,
+        is_dml=_is_dml(sql) if sql else False,
+    )
 
 
 async def ask_agent(
@@ -157,41 +279,18 @@ async def ask_agent(
     db: DatabasePort,
     history_json: bytes | None = None,
 ) -> tuple[str, str, bool, bytes]:
-    """Send a natural-language question to the AI agent.
-
-    Args:
-        question: User's natural-language question.
-        settings: LLM API connection settings.
-        db: Database port for schema/query tools.
-        history_json: Serialised message history from a previous call
-            (as returned by ``result.all_messages_json()``).
-
-    Returns:
-        (response_text, sql_if_any, is_dml, updated_history_json)
-    """
-    provider = OpenAIProvider(base_url=settings.base_url, api_key=settings.api_key)
-    model = OpenAIModel(model_name=settings.model, provider=provider)
-    deps = AgentDeps(db=db)
-
-    # Restore conversation history if available
-    message_history = None
-    if history_json:
-        try:
-            message_history = ModelMessagesTypeAdapter.validate_json(history_json)
-        except Exception:
-            message_history = None  # corrupted history — start fresh
-
-    result = await _agent.run(question, model=model, deps=deps, message_history=message_history)
-    response_text = result.output
-
-    # Try to extract SQL from the response (```sql ... ``` blocks)
-    sql = _extract_sql(response_text)
-    dml = _is_dml(sql) if sql else False
-
-    # Serialise full conversation for the next turn
-    updated_history = result.all_messages_json()
-
-    return response_text, sql, dml, updated_history
+    """Run the shared agent loop using the server-managed provider transport."""
+    history_token = history_json.decode("ascii") if history_json else ""
+    step = start_agent_turn(
+        question,
+        base_url=settings.base_url,
+        model=settings.model,
+        history_token=history_token,
+    )
+    while step.status == "needs_model" and step.request is not None:
+        response = await request_model(step.request, settings.api_key)
+        step = await continue_agent_turn(step.state, response, db)
+    return step.content, step.sql, step.is_dml, step.state.encode("ascii")
 
 
 _SQL_KEYWORDS = r"(?:SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|EXECUTE|TRUNCATE|MERGE)"

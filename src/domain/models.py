@@ -3,6 +3,8 @@
 Pure data structures with no dependencies on infrastructure.
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -108,11 +110,87 @@ class PagedData(BaseModel):
 
 
 class AiSettings(BaseModel):
-    """Settings for AI assistant (OpenAI-compatible API)."""
+    """Server-managed OpenAI-compatible provider settings."""
 
     base_url: str = Field(description="API base URL, e.g. https://api.openai.com/v1")
-    api_key: str = Field(description="API key (sent from client, never persisted)")
+    api_key: str = Field(description="Runtime API key configured on the server")
     model: str = Field(default="gpt-4o-mini", description="Model name")
+
+
+class AiToolCall(BaseModel):
+    """Provider-neutral function tool call returned by an LLM."""
+
+    id: str
+    name: str
+    arguments: str = "{}"
+
+
+class AiChatMessage(BaseModel):
+    """OpenAI-compatible chat message used by the agent loop."""
+
+    role: Literal["system", "user", "assistant", "tool"]
+    content: str = ""
+    tool_calls: list[AiToolCall] = Field(default_factory=list)
+    tool_call_id: str = ""
+
+
+class AiToolDefinition(BaseModel):
+    """Function tool schema exposed to an OpenAI-compatible model."""
+
+    name: str
+    description: str
+    parameters: dict[str, object]
+
+
+class AiModelRequest(BaseModel):
+    """A provider request safe to relay through the browser."""
+
+    base_url: str
+    model: str
+    messages: list[AiChatMessage]
+    tools: list[AiToolDefinition] = Field(default_factory=list)
+
+
+class AiModelResponseMessage(BaseModel):
+    """Validated message extracted from a provider response."""
+
+    role: Literal["assistant"] = "assistant"
+    content: str = ""
+    tool_calls: list[AiToolCall] = Field(default_factory=list)
+
+
+class AiModelResponse(BaseModel):
+    """Validated provider response consumed by the agent loop."""
+
+    message: AiModelResponseMessage
+
+
+class AiAgentStep(BaseModel):
+    """One state transition in the backend-owned AI agent loop."""
+
+    status: Literal["needs_model", "complete"]
+    state: str
+    request: AiModelRequest | None = None
+    content: str = ""
+    sql: str = ""
+    is_dml: bool = False
+
+
+class AiRelayStartInput(BaseModel):
+    """Validated browser request for starting an AI relay turn."""
+
+    question: str
+    base_url: str
+    model: str
+    history: str = ""
+    context: str = ""
+
+
+class AiRelayContinueInput(BaseModel):
+    """Validated browser request for continuing an AI relay turn."""
+
+    state: str
+    provider_response: object
 
 
 class AiMessage(BaseModel):

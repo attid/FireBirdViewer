@@ -1,16 +1,33 @@
-"""Unit tests for AI agent helpers and its Markdown response contract.
+"""Unit tests for the provider-neutral AI agent loop."""
 
-Tests DML detection and SQL extraction from markdown.
-Does NOT test the actual LLM call (requires API key).
-"""
+import json
 
-from src.domain.models import QueryResult
+import pytest
+
+from src.domain.models import AiModelResponse, AiModelResponseMessage, AiToolCall, QueryResult
 from src.repository.ai_agent import (
     _SYSTEM_PROMPT,
     _extract_sql,
     _format_query_result,
     _is_dml,
+    continue_agent_turn,
+    start_agent_turn,
 )
+
+
+class FakeDatabase:
+    async def list_tables(self):
+        return ["USERS"]
+
+    async def list_views(self):
+        return []
+
+    async def get_columns(self, table_name):
+        assert table_name == "USERS"
+        return []
+
+    async def execute_query(self, sql):
+        return QueryResult(columns=["ID"], rows=[[1]], row_count=1)
 
 
 def test_system_prompt_describes_supported_markdown_contract():
@@ -19,6 +36,108 @@ def test_system_prompt_describes_supported_markdown_contract():
     assert "fenced" in _SYSTEM_PROMPT
     assert "raw HTML" in _SYSTEM_PROMPT
     assert "images" in _SYSTEM_PROMPT
+
+
+def test_start_agent_turn_builds_provider_request_without_api_key(monkeypatch):
+    monkeypatch.setenv("SESSION_SECRET_KEY", "test-relay-secret")
+
+    step = start_agent_turn(
+        "How many users?",
+        base_url="https://llm.example/v1",
+        model="test-model",
+    )
+
+    assert step.status == "needs_model"
+    assert step.request is not None
+    assert step.request.base_url == "https://llm.example/v1"
+    assert step.request.model == "test-model"
+    assert step.request.messages[-1].content == "How many users?"
+    assert "api_key" not in step.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_continue_agent_turn_executes_read_only_tool(monkeypatch):
+    monkeypatch.setenv("SESSION_SECRET_KEY", "test-relay-secret")
+    first = start_agent_turn(
+        "Show users",
+        base_url="https://llm.example/v1",
+        model="test-model",
+    )
+    response = AiModelResponse(
+        message=AiModelResponseMessage(
+            role="assistant",
+            tool_calls=[
+                AiToolCall(
+                    id="call-1",
+                    name="run_select",
+                    arguments=json.dumps({"sql": "SELECT ID FROM USERS"}),
+                )
+            ],
+        )
+    )
+
+    step = await continue_agent_turn(first.state, response, FakeDatabase())
+
+    assert step.status == "needs_model"
+    assert step.request is not None
+    assert step.request.messages[-1].role == "tool"
+    assert "| 1 |" in step.request.messages[-1].content
+
+
+@pytest.mark.asyncio
+async def test_continue_agent_turn_rejects_mutating_tool_sql(monkeypatch):
+    monkeypatch.setenv("SESSION_SECRET_KEY", "test-relay-secret")
+    first = start_agent_turn("Change users", base_url="https://llm.example/v1", model="test")
+    response = AiModelResponse(
+        message=AiModelResponseMessage(
+            role="assistant",
+            tool_calls=[
+                AiToolCall(
+                    id="call-1",
+                    name="run_select",
+                    arguments=json.dumps({"sql": "EXECUTE PROCEDURE CHANGE_USERS"}),
+                )
+            ],
+        )
+    )
+
+    step = await continue_agent_turn(first.state, response, FakeDatabase())
+
+    assert "cannot execute" in step.request.messages[-1].content.lower()
+
+
+@pytest.mark.asyncio
+async def test_continue_agent_turn_rejects_tampered_state(monkeypatch):
+    monkeypatch.setenv("SESSION_SECRET_KEY", "test-relay-secret")
+    first = start_agent_turn("Question", base_url="https://llm.example/v1", model="test")
+
+    with pytest.raises(ValueError, match="Invalid AI relay state"):
+        await continue_agent_turn(
+            first.state + "tampered",
+            AiModelResponse(message=AiModelResponseMessage(role="assistant", content="No")),
+            FakeDatabase(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_continue_agent_turn_finishes_with_suggested_ddl(monkeypatch):
+    monkeypatch.setenv("SESSION_SECRET_KEY", "test-relay-secret")
+    first = start_agent_turn("Create a table", base_url="https://llm.example/v1", model="test")
+
+    step = await continue_agent_turn(
+        first.state,
+        AiModelResponse(
+            message=AiModelResponseMessage(
+                role="assistant",
+                content="```sql\nCREATE TABLE TEST (ID INTEGER)\n```",
+            )
+        ),
+        FakeDatabase(),
+    )
+
+    assert step.status == "complete"
+    assert step.content.startswith("```sql")
+    assert step.is_dml is True
 
 
 class TestFormatQueryResult:

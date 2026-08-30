@@ -64,6 +64,30 @@ Browser -> HTMX request -> main.py route -> application use-case -> repository -
 Browser <- HTML response
 ```
 
+## AI Assistant Flow
+
+The AI assistant has one provider-neutral agent loop owned by the backend. It builds
+messages and tool schemas, validates every model response, and executes database tools.
+The transport is selected by credential ownership:
+
+```text
+Server-managed: Browser -> FireBirdViewer -> LLM
+Browser BYOK:    Browser -> LLM
+                    |         |
+                    +-> FireBirdViewer tool steps -> Firebird
+```
+
+In Browser BYOK mode, FireBirdViewer returns a model request envelope without an API
+key. The browser adds its in-memory key only to the request sent directly to the chosen
+provider, then returns the provider response to the backend. Agent state is encrypted
+and authenticated with the session secret between stateless steps. Database tools are
+always validated and executed on the backend; the browser cannot introduce new tools
+or bypass SQL confirmation.
+
+Provider URLs in Browser BYOK mode require browser CORS support. This is intentionally
+not proxied through FireBirdViewer because deployments may prohibit all outbound
+Internet traffic from the application server.
+
 ## Session Management
 
 - Connection params serialized into encrypted Fernet cookie

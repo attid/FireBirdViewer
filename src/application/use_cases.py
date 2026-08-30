@@ -11,6 +11,8 @@ from dataclasses import dataclass
 
 from src.application.ports import DatabasePort
 from src.domain.models import (
+    AiAgentStep,
+    AiModelResponse,
     AiSettings,
     Column,
     ConnectionParams,
@@ -19,7 +21,18 @@ from src.domain.models import (
     QueryResult,
 )
 
-_AI_DML_ALLOWED_PREFIXES = ("INSERT", "UPDATE", "DELETE", "MERGE")
+_AI_CONFIRMABLE_SQL_PREFIXES = (
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "MERGE",
+    "CREATE",
+    "ALTER",
+    "DROP",
+    "RECREATE",
+    "TRUNCATE",
+    "EXECUTE",
+)
 
 
 def _strip_leading_sql_comments(sql: str) -> str:
@@ -240,14 +253,53 @@ class AskAiUseCase:
         return await self._ask_fn(question, settings, self._db, history_json)
 
 
+class StartAiRelayUseCase:
+    """Start a browser-relayed AI turn without handling user credentials."""
+
+    StartFn = Callable[..., AiAgentStep]
+
+    def __init__(self, start_fn: StartFn) -> None:
+        self._start_fn = start_fn
+
+    def execute(
+        self,
+        question: str,
+        *,
+        base_url: str,
+        model: str,
+        history_token: str = "",
+        context: str = "",
+    ) -> AiAgentStep:
+        return self._start_fn(
+            question,
+            base_url=base_url,
+            model=model,
+            history_token=history_token,
+            context=context,
+        )
+
+
+class ContinueAiRelayUseCase:
+    """Continue a browser-relayed turn and execute validated database tools."""
+
+    ContinueFn = Callable[[str, AiModelResponse, DatabasePort], Awaitable[AiAgentStep]]
+
+    def __init__(self, db: DatabasePort, continue_fn: ContinueFn) -> None:
+        self._db = db
+        self._continue_fn = continue_fn
+
+    async def execute(self, state: str, response: AiModelResponse) -> AiAgentStep:
+        return await self._continue_fn(state, response, self._db)
+
+
 class ExecuteAiDmlUseCase:
-    """Execute a user-confirmed DML statement suggested by the AI assistant."""
+    """Execute one user-confirmed mutating statement suggested by the assistant."""
 
     def __init__(self, db: DatabasePort) -> None:
         self._db = db
 
     async def execute(self, sql: str) -> QueryResult:
-        """Execute the DML and return results."""
+        """Execute one confirmed DML or DDL statement and return its result."""
         stripped = sql.strip()
         if not stripped:
             msg = "Empty SQL"
@@ -256,8 +308,8 @@ class ExecuteAiDmlUseCase:
             msg = "AI DML execution accepts a single statement only"
             raise ValueError(msg)
         first_statement = _strip_leading_sql_comments(stripped).upper()
-        if not first_statement.startswith(_AI_DML_ALLOWED_PREFIXES):
-            msg = "Only INSERT, UPDATE, DELETE, or MERGE statements can be confirmed here"
+        if not first_statement.startswith(_AI_CONFIRMABLE_SQL_PREFIXES):
+            msg = "Only one data-modifying or schema-modifying statement can be confirmed here"
             raise ValueError(msg)
         return await self._db.execute_query(stripped)
 

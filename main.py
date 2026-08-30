@@ -4,7 +4,6 @@ Wires together all layers and registers FastHTML routes.
 This is the only module allowed to import from all layers.
 """
 
-import base64
 import json
 import logging
 import os
@@ -21,6 +20,7 @@ from src.application.use_cases import (
     AskAiUseCase,
     BuildSqlEditorSchemaUseCase,
     ConnectUseCase,
+    ContinueAiRelayUseCase,
     DeleteRowUseCase,
     ExecuteAiDmlUseCase,
     ExecuteProcedureUseCase,
@@ -29,12 +29,20 @@ from src.application.use_cases import (
     GetRowUseCase,
     InsertRowUseCase,
     ListObjectsUseCase,
+    StartAiRelayUseCase,
     UpdateCellUseCase,
     ViewDdlUseCase,
     ViewProcedureUseCase,
     ViewTableDataUseCase,
 )
-from src.domain.models import AiMessage, AiSettings, ConnectionParams, QueryResult
+from src.domain.models import (
+    AiMessage,
+    AiRelayContinueInput,
+    AiRelayStartInput,
+    AiSettings,
+    ConnectionParams,
+    QueryResult,
+)
 from src.interface.components.ai import (
     ai_assistant,
     ai_assistant_message,
@@ -58,7 +66,8 @@ from src.interface.session import (
     get_cookie_name,
     load_session,
 )
-from src.repository.ai_agent import ask_agent
+from src.repository.ai_agent import ask_agent, continue_agent_turn, start_agent_turn
+from src.repository.ai_transport import normalize_model_response
 from src.repository.firebird import FirebirdRepository
 
 log = logging.getLogger("firebirdviewer")
@@ -571,7 +580,7 @@ async def get(request: Request):
 
 @rt(url_path("/ai/ask"))
 async def post(request: Request):
-    """Handle an AI assistant question."""
+    """Handle an AI question using only server-managed provider settings."""
     repo = _get_repo(request)
     if repo is None:
         return error_alert("Not connected. Please reconnect.")
@@ -582,17 +591,19 @@ async def post(request: Request):
         if not question:
             return error_alert("Please enter a question.")
 
-        # AI settings: client values with server env fallback
-        base_url = str(form.get("ai_base_url", "")).strip() or os.environ.get("AI_BASE_URL", "")
-        api_key = str(form.get("ai_api_key", "")).strip() or os.environ.get("AI_API_KEY", "")
-        model = str(form.get("ai_model", "")).strip() or os.environ.get("AI_MODEL", "")
+        base_url = os.environ.get("AI_BASE_URL", "").strip()
+        api_key = os.environ.get("AI_API_KEY", "").strip()
+        model = os.environ.get("AI_MODEL", "").strip()
 
         if not base_url or not api_key:
             return Div(
                 ai_user_message(question),
                 Div(
                     Div(
-                        Span("Please configure AI settings first (click Settings button above)."),
+                        Span(
+                            "Server-managed AI is not configured. "
+                            "Enter your own provider settings to use Browser BYOK."
+                        ),
                         cls="chat-bubble chat-bubble-error",
                     ),
                     cls="chat chat-start",
@@ -605,14 +616,10 @@ async def post(request: Request):
             model=model or "gpt-4o-mini",
         )
 
-        # Restore conversation history (base64-encoded JSON bytes from JS)
-        history_b64 = str(form.get("ai_history", "")).strip()
+        history_token = str(form.get("ai_history", "")).strip()
         history_json: bytes | None = None
-        if history_b64:
-            try:
-                history_json = base64.b64decode(history_b64)
-            except Exception:
-                history_json = None
+        if history_token:
+            history_json = history_token.encode("ascii")
 
         ai_context = str(form.get("ai_context", "")).strip()
         agent_question = question
@@ -636,15 +643,14 @@ async def post(request: Request):
             is_dml=is_dml,
         )
 
-        # Encode updated history for the client (base64)
-        history_b64_out = base64.b64encode(updated_history).decode("ascii")
+        history_token_out = updated_history.decode("ascii")
 
         return Div(
             ai_user_message(question),
             ai_assistant_message(ai_msg),
             # Hidden element with updated conversation history (OOB swap)
             Div(
-                history_b64_out,
+                history_token_out,
                 id="ai-history-data",
                 cls="hidden",
                 hx_swap_oob="true",
@@ -660,6 +666,69 @@ async def post(request: Request):
                 cls="chat chat-start",
             ),
         )
+    finally:
+        await repo.close()
+
+
+@rt(url_path("/ai/relay/start"))
+async def post(request: Request):
+    """Start browser-relayed AI without receiving the user's API key."""
+    repo = _get_repo(request)
+    if repo is None:
+        return JSONResponse({"error": "Not connected. Please reconnect."}, status_code=401)
+    try:
+        payload = AiRelayStartInput.model_validate(await request.json())
+        question = payload.question.strip()
+        base_url = payload.base_url.strip()
+        model = payload.model.strip()
+        if not question or not base_url or not model:
+            return JSONResponse(
+                {"error": "Question, API base URL, and model are required."}, status_code=400
+            )
+        use_case = StartAiRelayUseCase(start_agent_turn)
+        step = use_case.execute(
+            question,
+            base_url=base_url,
+            model=model,
+            history_token=payload.history.strip(),
+            context=payload.context.strip(),
+        )
+        result = step.model_dump(mode="json")
+        result["user_html"] = str(ai_user_message(question))
+        return JSONResponse(result)
+    except Exception as exc:
+        return JSONResponse({"error": _clean_db_error(exc)}, status_code=400)
+    finally:
+        await repo.close()
+
+
+@rt(url_path("/ai/relay/continue"))
+async def post(request: Request):
+    """Continue browser-relayed AI and execute validated tools on the backend."""
+    repo = _get_repo(request)
+    if repo is None:
+        return JSONResponse({"error": "Not connected. Please reconnect."}, status_code=401)
+    try:
+        payload = AiRelayContinueInput.model_validate(await request.json())
+        state = payload.state.strip()
+        provider_response = normalize_model_response(payload.provider_response)
+        use_case = ContinueAiRelayUseCase(repo, continue_agent_turn)
+        step = await use_case.execute(state, provider_response)
+        result = step.model_dump(mode="json")
+        if step.status == "complete":
+            result["html"] = str(
+                ai_assistant_message(
+                    AiMessage(
+                        role="assistant",
+                        content=step.content,
+                        sql=step.sql,
+                        is_dml=step.is_dml,
+                    )
+                )
+            )
+        return JSONResponse(result)
+    except Exception as exc:
+        return JSONResponse({"error": _clean_db_error(exc)}, status_code=400)
     finally:
         await repo.close()
 

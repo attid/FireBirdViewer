@@ -403,15 +403,20 @@ document.addEventListener('htmx:afterSwap', function() {
 })();
 
 /* ------------------------------------------------------------------ */
-/* AI Assistant: settings in localStorage + form interception          */
+/* AI Assistant: server-managed and browser-relayed provider modes     */
 /* ------------------------------------------------------------------ */
 
 (function() {
     var AI_STORAGE_KEY = 'fbviewer_ai_settings';
+    var sessionAiKey = '';
 
     function getAiSettings() {
         try {
-            return JSON.parse(localStorage.getItem(AI_STORAGE_KEY)) || {};
+            var settings = JSON.parse(localStorage.getItem(AI_STORAGE_KEY)) || {};
+            if (!sessionAiKey && settings.remember_key && settings.api_key) {
+                sessionAiKey = settings.api_key;
+            }
+            return settings;
         } catch (e) {
             return {};
         }
@@ -429,7 +434,6 @@ document.addEventListener('htmx:afterSwap', function() {
                 if (defaults.base_url) {
                     var settings = {
                         base_url: defaults.base_url,
-                        api_key: '',  // never from server
                         model: defaults.model || '',
                         api_key_on_server: defaults.api_key_set || false
                     };
@@ -445,13 +449,22 @@ document.addEventListener('htmx:afterSwap', function() {
         var baseUrl = document.getElementById('ai-base-url');
         var apiKey = document.getElementById('ai-api-key');
         var model = document.getElementById('ai-model');
+        var rememberKey = document.getElementById('ai-remember-key');
+        sessionAiKey = apiKey ? apiKey.value.trim() : '';
         var settings = {
-            base_url: baseUrl ? baseUrl.value : '',
-            api_key: apiKey ? apiKey.value : '',
-            model: model ? model.value : ''
+            base_url: baseUrl ? baseUrl.value.trim() : '',
+            model: model ? model.value.trim() : '',
+            remember_key: Boolean(rememberKey && rememberKey.checked)
         };
+        if (settings.remember_key && sessionAiKey) settings.api_key = sessionAiKey;
         localStorage.setItem(AI_STORAGE_KEY, JSON.stringify(settings));
     };
+
+    document.addEventListener('click', function(e) {
+        if (!e.target || e.target.id !== 'ai-settings-save') return;
+        window.__saveAiSettings();
+        document.getElementById('ai-settings-modal').close();
+    });
 
     // Pre-fill settings modal inputs when it appears
     function populateAiSettingsModal() {
@@ -459,26 +472,22 @@ document.addEventListener('htmx:afterSwap', function() {
         var baseUrl = document.getElementById('ai-base-url');
         var apiKey = document.getElementById('ai-api-key');
         var model = document.getElementById('ai-model');
+        var rememberKey = document.getElementById('ai-remember-key');
         if (baseUrl && settings.base_url) baseUrl.value = settings.base_url;
-        if (apiKey && settings.api_key) apiKey.value = settings.api_key;
-        if (apiKey && !settings.api_key && settings.api_key_on_server) {
+        if (apiKey && sessionAiKey) apiKey.value = sessionAiKey;
+        if (apiKey && !sessionAiKey && settings.api_key_on_server) {
             apiKey.placeholder = '(set on server via AI_API_KEY)';
         }
         if (model && settings.model) model.value = settings.model;
+        if (rememberKey) rememberKey.checked = Boolean(settings.remember_key);
     }
 
-    // Inject AI settings + conversation history before HTMX sends the request
+    // Server-managed mode receives only conversation state and execution context.
     document.addEventListener('htmx:configRequest', function(e) {
         var elt = e.detail.elt;
         var form = elt.closest('#ai-ask-form');
         if (!form) return;
 
-        var settings = getAiSettings();
-        e.detail.parameters['ai_base_url'] = settings.base_url || '';
-        e.detail.parameters['ai_api_key'] = settings.api_key || '';
-        e.detail.parameters['ai_model'] = settings.model || '';
-
-        // Include conversation history (base64-encoded, stored in a hidden div)
         var historyEl = document.getElementById('ai-history-data');
         if (historyEl && historyEl.textContent.trim()) {
             e.detail.parameters['ai_history'] = historyEl.textContent.trim();
@@ -489,6 +498,153 @@ document.addEventListener('htmx:afterSwap', function() {
             e.detail.parameters['ai_context'] = contextEl.textContent.trim();
         }
     });
+
+    function providerRequestBody(request) {
+        var messages = request.messages.map(function(message) {
+            var item = { role: message.role, content: message.content || '' };
+            if (message.tool_calls && message.tool_calls.length) {
+                item.tool_calls = message.tool_calls.map(function(call) {
+                    return {
+                        id: call.id,
+                        type: 'function',
+                        function: { name: call.name, arguments: call.arguments }
+                    };
+                });
+            }
+            if (message.tool_call_id) item.tool_call_id = message.tool_call_id;
+            return item;
+        });
+        var body = { model: request.model, messages: messages };
+        if (request.tools && request.tools.length) {
+            body.tools = request.tools.map(function(tool) {
+                return {
+                    type: 'function',
+                    function: {
+                        name: tool.name,
+                        description: tool.description,
+                        parameters: tool.parameters
+                    }
+                };
+            });
+            body.tool_choice = 'auto';
+        }
+        return body;
+    }
+
+    async function appJson(path, payload) {
+        var response = await fetch(appUrl(path), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        var data = await response.json();
+        if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+    }
+
+    async function providerJson(request, apiKey) {
+        var url = request.base_url.replace(/\/+$/, '') + '/chat/completions';
+        var response;
+        try {
+            response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + apiKey,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(providerRequestBody(request))
+            });
+        } catch (error) {
+            throw new Error(
+                'The browser could not reach the AI provider. Check HTTPS, CORS, and the URL. '
+                + error.message
+            );
+        }
+        if (!response.ok) {
+            var detail = await response.text();
+            throw new Error(`AI provider returned HTTP ${response.status}: ${detail.slice(0, 500)}`);
+        }
+        return response.json();
+    }
+
+    function setAiBusy(busy) {
+        var button = document.getElementById('ai-ask-btn');
+        var loading = document.getElementById('ai-loading');
+        if (button) button.disabled = busy;
+        if (loading) loading.classList.toggle('htmx-request', busy);
+    }
+
+    function appendAiHtml(html) {
+        var chat = document.getElementById('ai-chat-messages');
+        if (!chat) return;
+        chat.insertAdjacentHTML('beforeend', html);
+        chat.scrollTop = chat.scrollHeight;
+    }
+
+    function appendAiError(message) {
+        var wrapper = document.createElement('div');
+        wrapper.className = 'chat chat-start';
+        var bubble = document.createElement('div');
+        bubble.className = 'chat-bubble chat-bubble-error';
+        bubble.textContent = 'Error: ' + message;
+        wrapper.appendChild(bubble);
+        var chat = document.getElementById('ai-chat-messages');
+        if (chat) chat.appendChild(wrapper);
+    }
+
+    async function runBrowserRelay(question, settings, apiKey) {
+        var history = document.getElementById('ai-history-data');
+        var context = document.getElementById('ai-context-data');
+        var step = await appJson('/ai/relay/start', {
+            question: question,
+            base_url: settings.base_url || '',
+            model: settings.model || 'gpt-4o-mini',
+            history: history ? history.textContent.trim() : '',
+            context: context ? context.textContent.trim() : ''
+        });
+        appendAiHtml(step.user_html);
+
+        while (step.status === 'needs_model') {
+            var providerResponse = await providerJson(step.request, apiKey);
+            step = await appJson('/ai/relay/continue', {
+                state: step.state,
+                provider_response: providerResponse
+            });
+        }
+        if (step.html) appendAiHtml(step.html);
+        if (history) history.textContent = step.state || '';
+        if (context) context.textContent = '';
+    }
+
+    function startBrowserRelayFromForm(e) {
+        var settings = getAiSettings();
+        var apiKey = sessionAiKey || (settings.remember_key ? settings.api_key || '' : '');
+        if (!apiKey) return false;
+
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        var input = document.getElementById('ai-question-input');
+        var question = input ? input.value.trim() : '';
+        if (!question) return true;
+        setAiBusy(true);
+        runBrowserRelay(question, settings, apiKey)
+            .then(function() { if (input) input.value = ''; })
+            .catch(function(error) { appendAiError(error.message); })
+            .finally(function() { setAiBusy(false); });
+        return true;
+    }
+
+    // Intercept before HTMX creates a submit request. Without a personal key,
+    // the normal form submit continues to the server-managed route.
+    document.addEventListener('click', function(e) {
+        if (e.target && e.target.closest('#ai-ask-btn')) startBrowserRelayFromForm(e);
+    }, true);
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && e.target && e.target.id === 'ai-question-input') {
+            startBrowserRelayFromForm(e);
+        }
+    }, true);
 
     // Clear input after successful submission and scroll chat to bottom
     document.addEventListener('htmx:afterSwap', function(e) {

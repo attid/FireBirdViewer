@@ -84,13 +84,34 @@ def _ai_settings_modal() -> Dialog:
                 Div("AI", cls="badge badge-primary badge-sm text-primary-content"),
                 H3("AI Settings", cls="font-bold text-2xl mt-2"),
                 P(
-                    "Configure your OpenAI-compatible API. Settings are stored in "
-                    "your browser (localStorage) and sent with each request.",
+                    "Use Server-managed AI when your organization configured it, or "
+                    "Browser BYOK to call an OpenAI-compatible provider directly from "
+                    "this browser.",
                     cls="text-sm text-base-content/70 mt-2 leading-relaxed",
                 ),
                 cls="px-6 pt-6 pb-4 border-b border-base-300 bg-base-200",
             ),
             Div(
+                Div(
+                    Div(
+                        Span("Server-managed", cls="badge badge-neutral badge-sm"),
+                        Span(
+                            "Used automatically when no personal API key is entered.",
+                            cls="text-sm text-base-content/70",
+                        ),
+                        cls="flex items-center gap-2",
+                    ),
+                    Div(
+                        Span("Browser BYOK", cls="badge badge-primary badge-sm"),
+                        Span(
+                            "Your browser calls the selected provider directly; the key "
+                            "is never sent to FireBirdViewer.",
+                            cls="text-sm text-base-content/70",
+                        ),
+                        cls="flex items-center gap-2 mt-2",
+                    ),
+                    cls="rounded-box border border-base-300 bg-base-200 p-4",
+                ),
                 Div(
                     Label(
                         Span("API Base URL", cls="label-text font-semibold text-sm"),
@@ -103,7 +124,7 @@ def _ai_settings_modal() -> Dialog:
                         cls="input input-bordered w-full",
                     ),
                     P(
-                        "Example: OpenAI, OpenRouter, local proxy",
+                        "Browser BYOK requires HTTPS and provider CORS support.",
                         cls="text-xs text-base-content/60 mt-2",
                     ),
                     cls="form-control rounded-box border border-base-300 bg-base-100 p-4",
@@ -120,7 +141,15 @@ def _ai_settings_modal() -> Dialog:
                         cls="input input-bordered w-full",
                         autocomplete="off",
                     ),
-                    P("Stored only in your browser", cls="text-xs text-base-content/60 mt-2"),
+                    P(
+                        "Kept only in this tab unless you explicitly choose to remember it.",
+                        cls="text-xs text-base-content/60 mt-2",
+                    ),
+                    Label(
+                        Input(type="checkbox", id="ai-remember-key", cls="checkbox checkbox-sm"),
+                        Span("Remember in this browser", cls="label-text text-sm"),
+                        cls="label cursor-pointer justify-start gap-2 mt-2",
+                    ),
                     cls="form-control rounded-box border border-base-300 bg-base-100 p-4",
                 ),
                 Div(
@@ -140,18 +169,28 @@ def _ai_settings_modal() -> Dialog:
                     ),
                     cls="form-control rounded-box border border-base-300 bg-base-100 p-4",
                 ),
+                Div(
+                    Span("Data notice", cls="font-semibold"),
+                    P(
+                        "Your question, database schema and query results may be sent to "
+                        "the provider URL you selected.",
+                        cls="text-sm text-base-content/70 mt-1",
+                    ),
+                    cls="alert alert-warning items-start",
+                ),
                 cls="px-6 py-5 space-y-4",
             ),
             Div(
                 Div(
                     Button(
                         "Save",
+                        type="button",
+                        id="ai-settings-save",
                         cls="btn btn-primary btn-sm min-w-24",
-                        onclick="window.__saveAiSettings(); "
-                        "document.getElementById('ai-settings-modal').close()",
                     ),
                     Button(
                         "Cancel",
+                        type="button",
                         cls="btn btn-outline btn-sm min-w-24",
                         onclick="document.getElementById('ai-settings-modal').close()",
                     ),

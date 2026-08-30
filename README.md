@@ -14,12 +14,25 @@ Runs fully offline — no internet required at runtime.
 - **Inline Editing** — click any cell to edit, Enter to save
 - **Insert / Delete Rows** — add new rows, delete with confirmation
 - **SQL Editor** — CodeMirror 6 with syntax highlighting, schema autocomplete, Ctrl+Enter
-- **AI SQL Assistant** — natural-language queries via any OpenAI-compatible API (PydanticAI)
+- **AI SQL Assistant** — one agent loop with server-managed or Browser BYOK providers
 - **Docker** — multi-stage build, fully offline, no CDN dependencies
 
 > **AI Assistant safety:** The agent executes only read-only `SELECT` queries automatically.
 > Any data-modifying statement (`INSERT`, `UPDATE`, `DELETE`, `DROP`, etc.) is **never**
 > executed by the agent — it only suggests SQL and requires explicit user confirmation.
+
+AI provider modes:
+
+- **Server-managed** — configure `AI_BASE_URL`, `AI_API_KEY`, and `AI_MODEL` on the
+  FireBirdViewer server. Users share the configured provider without seeing its key.
+- **Browser BYOK** — enter a personal OpenAI-compatible URL, model, and API key in
+  Settings. The browser calls that provider directly, so the FireBirdViewer server does
+  not need outbound Internet access and never receives the personal key. The provider
+  must support browser CORS; an HTTPS page can call only an HTTPS provider.
+
+Browser BYOK sends the user's question, relevant database schema, and query results to
+the provider selected by that user. Personal keys stay in the current tab by default;
+persisting one in browser storage requires explicit opt-in.
 
 ## Screenshots
 
@@ -104,7 +117,7 @@ main.py              # Composition root: routes, app config
 src/
   domain/            # Pydantic models (no dependencies)
   application/       # Use cases and ports (abstract interfaces)
-  repository/        # Firebird SQL queries (SQLAlchemy async), AI agent (PydanticAI)
+  repository/        # Firebird SQL queries, provider-neutral AI loop and transport
   interface/         # FastHTML components and session management
 static/
   vendor/            # Built assets: styles.css, htmx.min.js, codemirror.bundle.js
