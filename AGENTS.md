@@ -79,7 +79,8 @@ Never create the task's final commit while its exec-plan remains under
 - Use `just check` before declaring implementation complete.
 - For UI behavior, use Playwright or equivalent browser verification.
 - Report commands actually run and their results.
-- Do not commit or push unless the user explicitly requests it.
+- Commit completed work after the required verification unless the user asks
+  not to commit. Do not push unless the user explicitly requests it.
 - Commits must not include unrelated pre-existing changes.
 
 ## Project Boundaries
