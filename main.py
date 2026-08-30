@@ -51,6 +51,7 @@ from src.interface.components.layout import (
 from src.interface.components.procedure import error_alert, procedure_result, procedure_view
 from src.interface.components.sql import query_result, sql_editor
 from src.interface.components.table_navigation import table_url
+from src.interface.demo import DemoSettings
 from src.interface.paths import root_path, url_path
 from src.interface.session import (
     create_session_token,
@@ -76,6 +77,7 @@ def _read_version() -> str:
 
 APP_VERSION = _read_version()
 APP_ROOT_PATH = root_path()
+DEMO_SETTINGS = DemoSettings.from_env()
 
 app, rt = fast_app(
     pico=False,
@@ -148,12 +150,18 @@ async def get(request: Request):
     params = _get_params(request)
     if params:
         return RedirectResponse(url_path("/dashboard"), status_code=303)
-    return Title("FireBird Viewer"), page_layout(connect_form())
+    return Title("FireBird Viewer"), page_layout(connect_form(demo=DEMO_SETTINGS))
 
 
 @rt(url_path("/connect"))
 async def post(request: Request, database: str, user: str, password: str):
     """Handle connection form submission."""
+    if not DEMO_SETTINGS.allows_connection(database, user):
+        return Title("FireBird Viewer"), page_layout(
+            connect_form(demo=DEMO_SETTINGS),
+            error_alert("Demo mode can connect only to the bundled database."),
+        )
+
     params = ConnectionParams(database=database, user=user, password=password)
     connect = ConnectUseCase(FirebirdRepository)
 
@@ -161,12 +169,12 @@ async def post(request: Request, database: str, user: str, password: str):
         ok = await connect.execute(params)
         if not ok:
             return Title("FireBird Viewer"), page_layout(
-                connect_form(database=database, user=user),
+                connect_form(database=database, user=user, demo=DEMO_SETTINGS),
                 error_alert("Connection failed"),
             )
     except Exception as exc:
         return Title("FireBird Viewer"), page_layout(
-            connect_form(database=database, user=user),
+            connect_form(database=database, user=user, demo=DEMO_SETTINGS),
             error_alert(_clean_db_error(exc)),
         )
 
@@ -200,6 +208,7 @@ async def get(request: Request):
         objects.views,
         objects.procedures,
         db_name,
+        demo_mode=DEMO_SETTINGS.enabled,
     )
 
 

@@ -9,6 +9,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: attid/firebirdviewer
+  DEMO_IMAGE_NAME: attid/firebirdviewer-demo
 
 jobs:
   build-and-push:
@@ -29,16 +30,18 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Docker image
-        # working-directory: ./jules_bot
         run: |
           VERSION=$(cat VERSION)
           docker build --build-arg VERSION=$VERSION -t $REGISTRY/$IMAGE_NAME:latest -t $REGISTRY/$IMAGE_NAME:$VERSION .
+          docker build -f demo/Dockerfile -t $REGISTRY/$DEMO_IMAGE_NAME:latest -t $REGISTRY/$DEMO_IMAGE_NAME:$VERSION demo
 
       - name: Push Docker image
         run: |
           VERSION=$(cat VERSION)
           docker push $REGISTRY/$IMAGE_NAME:latest
           docker push $REGISTRY/$IMAGE_NAME:$VERSION
+          docker push $REGISTRY/$DEMO_IMAGE_NAME:latest
+          docker push $REGISTRY/$DEMO_IMAGE_NAME:$VERSION
 
       - name: Notify Telegram
         run: |

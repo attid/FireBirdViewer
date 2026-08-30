@@ -1,16 +1,16 @@
 services:
   firebird5:
-    image: firebirdsql/firebird:5.0.3
+    image: ghcr.io/attid/firebirdviewer-demo:latest
     restart: always
     environment:
       - FIREBIRD_ROOT_PASSWORD=secret
       - FIREBIRD_USER=demo
       - FIREBIRD_PASSWORD=demo
       - FIREBIRD_DATABASE_DEFAULT_CHARSET=UTF8
-      - TZ=Europe/Moscow
+      - TZ=UTC
 
       # hardening:
-      - FIREBIRD_CONF_DatabaseAccess=None
+      - FIREBIRD_CONF_DatabaseAccess=Full
       - FIREBIRD_CONF_WireCrypt=Required
       - FIREBIRD_CONF_AuthServer=Srp
       - FIREBIRD_CONF_AuthClient=Srp
@@ -18,7 +18,6 @@ services:
 
     volumes:
       - firebird_demo_data:/var/lib/firebird/data
-      - ./demo/databases.conf:/opt/firebird/databases.conf:ro
     logging:
       driver: "json-file"
       options:
@@ -27,13 +26,13 @@ services:
 
   # reset DB every hour
   firebird_reset:
-    image: firebirdsql/firebird:5.0.3
+    image: ghcr.io/attid/firebirdviewer-demo:latest
     restart: always
     depends_on:
       - firebird5
     environment:
       - FIREBIRD_ROOT_PASSWORD=secret
-      - TZ=Europe/Moscow
+      - TZ=UTC
       - RESET_EVERY_SECONDS=3600
       #- FULL_RESET=true
       - DEMO_PASS=demo
@@ -41,8 +40,6 @@ services:
       - SEED_DB=/seed/employee.fdb
     volumes:
       - firebird_demo_data:/var/lib/firebird/data
-      - ./demo/employee.fdb:/seed/employee.fdb:ro
-      - ./demo/reset.sh:/reset.sh:ro
     entrypoint: ["/bin/bash", "/reset.sh"]
 
   viewer:
@@ -51,17 +48,13 @@ services:
     depends_on:
       - firebird5
     environment:
-      - TZ=Europe/Moscow
+      - TZ=UTC
       - DEMO_MODE=true
-    networks:
-      - web
-      - default
+      - DEMO_DATABASE=firebird5:employee
+      - DEMO_USER=demo
+      - DEMO_PASSWORD=demo
     ports:
-      - "8080:8080"
+      - "8080:5001"
 
 volumes:
   firebird_demo_data:
-
-networks:
-  web:
-    external: true

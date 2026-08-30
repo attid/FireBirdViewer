@@ -61,4 +61,3 @@ just arch-test # import boundary structural test
 - `docs/conventions.md` -- code style, patterns
 - `docs/golden-principles.md` -- immutable axioms
 - `docs/quality-grades.md` -- per-layer grades + tracked debt
-- `OLD/` -- old Go+Vue project, reference only

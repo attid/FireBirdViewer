@@ -72,6 +72,12 @@ docker run -p 5001:5001 firebird-viewer
 
 No internet required inside the container — all assets are baked in at build time.
 
+### Demo environment
+
+The repository includes a self-resetting Firebird 5 demo with prefilled public
+credentials. See [Demo environment](docs/demo.md) for local and Portainer
+deployment instructions.
+
 To serve the app under a sub-path:
 
 ```bash

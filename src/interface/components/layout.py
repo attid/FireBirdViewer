@@ -2,6 +2,7 @@
 
 from fasthtml.common import *
 
+from src.interface.demo import DemoSettings
 from src.interface.paths import url_path
 
 from ._shared import _APP_VERSION, _GITHUB_URL
@@ -45,11 +46,28 @@ def _navbar(title: str):
     )
 
 
-def connect_form(database: str = "", user: str = ""):
+def connect_form(
+    database: str = "",
+    user: str = "",
+    *,
+    demo: DemoSettings | None = None,
+):
     """Database connection form. Preserves values on error (except password)."""
+    demo = demo or DemoSettings()
+    if demo.enabled:
+        database = database or demo.database
+        user = user or demo.user
+
     return Div(
         Div(
             H2("Connect to Firebird", cls="text-2xl font-bold mb-6 text-center"),
+            Div(
+                Strong("Demo database"),
+                ": use the prefilled credentials. Changes are restored every hour.",
+                cls="alert alert-info mb-6 text-sm",
+            )
+            if demo.enabled
+            else None,
             Form(
                 _form_field(
                     "Database",
@@ -64,6 +82,7 @@ def connect_form(database: str = "", user: str = ""):
                         type="password",
                         name="password",
                         placeholder="password",
+                        value=demo.password if demo.enabled else "",
                         cls="input input-bordered w-full",
                         autocomplete="off",
                     ),
@@ -97,10 +116,24 @@ def _form_field(label: str, name: str, placeholder: str, value: str = ""):
     )
 
 
-def dashboard_layout(tables: list[str], views: list[str], procedures: list[str], db_name: str):
+def dashboard_layout(
+    tables: list[str],
+    views: list[str],
+    procedures: list[str],
+    db_name: str,
+    *,
+    demo_mode: bool = False,
+):
     """Main dashboard with sidebar tree + content area."""
     return Div(
         _navbar(f"FireBird Viewer - {db_name}"),
+        Div(
+            Strong("Demo database"),
+            ": changes are restored every hour.",
+            cls="container mx-auto max-w-7xl px-4 pb-4 text-sm text-info",
+        )
+        if demo_mode
+        else None,
         Div(
             # Sidebar
             Div(
