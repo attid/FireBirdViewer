@@ -1,11 +1,9 @@
 """AI Assistant components."""
 
-import re
-from re import Pattern
-
 from fasthtml.common import *
 
 from src.domain.models import AiMessage, QueryResult
+from src.interface.markdown import render_ai_markdown
 from src.interface.paths import url_path
 
 
@@ -180,23 +178,14 @@ def ai_user_message(question: str) -> Div:
     )
 
 
-_code_fence_pattern: Pattern[str] = re.compile(r"```\w*\s*\n(.*?)```", re.DOTALL)
-
-
-def _strip_code_fences(text: str) -> str:
-    """Strip markdown code fences (```...```) from text for clean display."""
-    return _code_fence_pattern.sub(r"\1", text).strip()
-
-
 def ai_assistant_message(msg: AiMessage) -> Div:
     """Render an assistant message bubble with optional SQL and results."""
     parts = []
 
-    display_text = _strip_code_fences(msg.content)
     parts.append(
         Div(
-            display_text,
-            cls="text-sm whitespace-pre-wrap break-words bg-base-200 p-3 rounded-box mb-2",
+            render_ai_markdown(msg.content),
+            cls="text-sm break-words bg-base-200 p-3 rounded-box mb-2",
         )
     )
 

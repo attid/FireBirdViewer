@@ -45,6 +45,10 @@ Rules:
 4. Firebird SQL dialect: use FIRST/SKIP instead of LIMIT/OFFSET, double-quote
    identifiers, string literals use single quotes.
 5. Keep answers concise.
+6. Format replies using only the supported Markdown subset: headings, bold,
+   italic, bullet or numbered lists, blockquotes, inline code, fenced code
+   blocks, links, and tables. Use Markdown tables for structured row results
+   and fenced `sql` blocks for SQL. Never emit raw HTML or Markdown images.
 """
 
 
@@ -115,14 +119,30 @@ async def run_select(ctx: RunContext[AgentDeps], sql: str) -> str:
     if not result.columns:
         return f"Query executed successfully. Rows affected: {result.row_count}"
 
-    # Format as readable table text (limit rows to avoid token explosion)
+    return _format_query_result(result)
+
+
+def _escape_markdown_table_cell(value: object) -> str:
+    """Preserve a value without letting it break Markdown table structure."""
+    display = "NULL" if value is None else str(value)
+    display = display.replace("\r\n", "\n").replace("\r", "\n")
+    return display.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "\\n")
+
+
+def _format_query_result(result: QueryResult) -> str:
+    """Format query rows as a valid Markdown table for the model."""
     max_rows = 50
-    lines = [" | ".join(result.columns)]
-    lines.append("-" * len(lines[0]))
+    columns = [_escape_markdown_table_cell(column) for column in result.columns]
+    lines = [f"| {' | '.join(columns)} |", f"| {' | '.join('---' for _ in columns)} |"]
+
     for row in result.rows[:max_rows]:
-        lines.append(" | ".join(str(v) if v is not None else "NULL" for v in row))
+        cells = [_escape_markdown_table_cell(value) for value in row]
+        lines.append(f"| {' | '.join(cells)} |")
+
     if len(result.rows) > max_rows:
+        lines.append("")
         lines.append(f"... ({len(result.rows) - max_rows} more rows)")
+
     return "\n".join(lines)
 
 

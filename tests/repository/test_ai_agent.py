@@ -1,10 +1,61 @@
-"""Unit tests for AI agent helpers.
+"""Unit tests for AI agent helpers and its Markdown response contract.
 
 Tests DML detection and SQL extraction from markdown.
 Does NOT test the actual LLM call (requires API key).
 """
 
-from src.repository.ai_agent import _extract_sql, _is_dml
+from src.domain.models import QueryResult
+from src.repository.ai_agent import (
+    _SYSTEM_PROMPT,
+    _extract_sql,
+    _format_query_result,
+    _is_dml,
+)
+
+
+def test_system_prompt_describes_supported_markdown_contract():
+    assert "Markdown" in _SYSTEM_PROMPT
+    assert "tables" in _SYSTEM_PROMPT
+    assert "fenced" in _SYSTEM_PROMPT
+    assert "raw HTML" in _SYSTEM_PROMPT
+    assert "images" in _SYSTEM_PROMPT
+
+
+class TestFormatQueryResult:
+    def test_returns_valid_markdown_table(self):
+        result = QueryResult(
+            columns=["ID", "NAME"],
+            rows=[[1, "Alice"], [2, None]],
+            row_count=2,
+        )
+
+        assert _format_query_result(result) == (
+            "| ID | NAME |\n| --- | --- |\n| 1 | Alice |\n| 2 | NULL |"
+        )
+
+    def test_escapes_markdown_delimiters_backslashes_and_line_breaks(self):
+        result = QueryResult(
+            columns=["A|B", "PATH"],
+            rows=[["left|right", "C:\\temp\nnext"]],
+            row_count=1,
+        )
+
+        assert _format_query_result(result) == (
+            "| A\\|B | PATH |\n| --- | --- |\n| left\\|right | C:\\\\temp\\nnext |"
+        )
+
+    def test_limits_tool_output_to_fifty_rows(self):
+        result = QueryResult(
+            columns=["ID"],
+            rows=[[row] for row in range(51)],
+            row_count=51,
+        )
+
+        table = _format_query_result(result)
+
+        assert "| 49 |" in table
+        assert "| 50 |" not in table
+        assert "... (1 more rows)" in table
 
 
 class TestIsDml:

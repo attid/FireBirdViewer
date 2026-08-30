@@ -6,6 +6,7 @@ requires-python = ">=3.13"
 dependencies = [
     "cryptography>=46.0.5",
     "itsdangerous>=2.2.0",
+    "markdown-it-py>=4.0.0",
     "pydantic>=2.12.5",
     "pydantic-ai[openai]>=1.63.0",
     "python-fasthtml>=0.12.47",
