@@ -57,6 +57,7 @@ class Column(BaseModel):
     nullable: bool = True
     is_primary_key: bool = False
     is_computed: bool = False
+    is_array: bool = False
     default_source: str = ""
     computed_source: str = ""
 

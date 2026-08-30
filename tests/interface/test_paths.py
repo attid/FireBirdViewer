@@ -137,6 +137,27 @@ def test_insert_form_renders_boolean_select_and_preserves_value():
     assert 'placeholder="BOOLEAN"' not in html
 
 
+def test_crud_forms_disable_firebird_array_columns():
+    columns = [
+        Column(
+            name="LANGUAGE_REQ",
+            type_name="VARCHAR(15)",
+            nullable=False,
+            is_array=True,
+        )
+    ]
+
+    insert_html = str(insert_form(columns, "JOB"))
+    edit_html = str(row_edit_form(columns, "JOB", "aabb"))
+
+    for html in (insert_html, edit_html):
+        assert 'name="col_LANGUAGE_REQ"' in html
+        assert "disabled" in html
+        assert "ARRAY" in html
+        assert 'name="null_LANGUAGE_REQ"' not in html
+        assert "required" not in html
+
+
 def test_table_filter_and_pagination_preserve_state(monkeypatch):
     monkeypatch.setenv("APP_ROOT_PATH", "/viewer")
 

@@ -73,6 +73,7 @@ class TestColumn:
         assert col.nullable is True
         assert col.is_primary_key is False
         assert col.is_computed is False
+        assert col.is_array is False
 
 
 class TestPagedData:

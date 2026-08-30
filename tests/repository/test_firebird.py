@@ -122,6 +122,10 @@ async def _capture_filter_sql(monkeypatch, columns: list[Column], filter_text: s
     return engine.conn.calls[0]
 
 
+def _filter_predicates(sql: str) -> str:
+    return sql.partition(" WHERE ")[2].partition(" ORDER BY ")[0]
+
+
 @pytest.mark.asyncio
 async def test_execute_query_passes_firebird_psql_variables_to_driver(monkeypatch):
     repo = _repo()
@@ -218,6 +222,48 @@ def test_map_fixed_point_types_uses_metadata_precision(
         )
         == expected
     )
+
+
+@pytest.mark.asyncio
+async def test_get_columns_marks_firebird_arrays(monkeypatch):
+    repo = _repo()
+    engine = _FakeEngine()
+    engine.conn.execute = lambda *args, **kwargs: None
+
+    async def fake_execute(statement, params=None):
+        engine.conn.calls.append((str(statement), dict(params or {})))
+        return _FakeResult(
+            rows=[
+                (
+                    "LANGUAGE_REQ",
+                    37,
+                    None,
+                    60,
+                    None,
+                    None,
+                    15,
+                    None,
+                    None,
+                    1,
+                    0,
+                    None,
+                    None,
+                    None,
+                    1,
+                )
+            ]
+        )
+
+    async def fake_get_engine():
+        return engine
+
+    monkeypatch.setattr(repo, "_get_engine", fake_get_engine)
+    monkeypatch.setattr(engine.conn, "execute", fake_execute)
+
+    columns = await repo.get_columns("JOB")
+
+    assert columns[0].is_array is True
+    assert "f.RDB$DIMENSIONS" in engine.conn.calls[0][0]
 
 
 @pytest.mark.asyncio
@@ -320,6 +366,25 @@ async def test_update_cell_rejects_computed_column_before_connecting(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_insert_and_update_reject_array_columns_before_connecting(monkeypatch):
+    repo = _repo()
+
+    async def fake_get_columns(table_name: str) -> list[Column]:
+        return [Column(name="LANGUAGE_REQ", type_name="VARCHAR(15)", is_array=True)]
+
+    async def fail_get_engine():
+        raise AssertionError("array writes must be rejected before opening engine")
+
+    monkeypatch.setattr(repo, "get_columns", fake_get_columns)
+    monkeypatch.setattr(repo, "_get_engine", fail_get_engine)
+
+    with pytest.raises(ValueError, match="array column"):
+        await repo.insert_row("JOB", {"LANGUAGE_REQ": "English"})
+    with pytest.raises(ValueError, match="array column"):
+        await repo.update_cell("JOB", "aabb", "LANGUAGE_REQ", "English")
+
+
+@pytest.mark.asyncio
 async def test_get_row_loads_values_by_db_key(monkeypatch):
     repo = _repo()
     engine = _FakeEngine()
@@ -330,6 +395,7 @@ async def test_get_row_loads_values_by_db_key(monkeypatch):
             Column(name="ID", type_name="INTEGER"),
             Column(name="NAME", type_name="VARCHAR(50)"),
             Column(name="PHOTO", type_name="BLOB"),
+            Column(name="LANGUAGE_REQ", type_name="VARCHAR(15)", is_array=True),
         ]
 
     async def fake_get_engine():
@@ -346,9 +412,47 @@ async def test_get_row_loads_values_by_db_key(monkeypatch):
     row = await repo.get_row("USERS", "aabb")
 
     select_sql, select_params = engine.conn.calls[0]
-    assert 'SELECT t.* FROM "USERS" t WHERE t.RDB$DB_KEY = :db_key' in select_sql
+    assert (
+        'SELECT t."ID", t."NAME", t."PHOTO" FROM "USERS" t '
+        "WHERE t.RDB$DB_KEY = :db_key" in select_sql
+    )
+    assert "LANGUAGE_REQ" not in select_sql
     assert select_params == {"db_key": bytes.fromhex("aabb")}
     assert row == {"ID": 1, "NAME": "Alice", "PHOTO": "raw"}
+
+
+@pytest.mark.asyncio
+async def test_get_table_data_excludes_array_columns_from_select(monkeypatch):
+    repo = _repo()
+    engine = _FakeEngine()
+
+    async def fake_get_columns(table_name: str) -> list[Column]:
+        return [
+            Column(name="JOB_CODE", type_name="VARCHAR(5)"),
+            Column(name="LANGUAGE_REQ", type_name="VARCHAR(15)", is_array=True),
+        ]
+
+    async def fake_get_engine():
+        return engine
+
+    async def fake_execute(statement, params=None):
+        sql = str(statement)
+        engine.conn.calls.append((sql, dict(params or {})))
+        if "COUNT" in sql:
+            return _FakeResult(scalar_value=1)
+        return _FakeResult(rows=[(b"key", "Admin")])
+
+    monkeypatch.setattr(repo, "get_columns", fake_get_columns)
+    monkeypatch.setattr(repo, "_get_engine", fake_get_engine)
+    monkeypatch.setattr(engine.conn, "execute", fake_execute)
+
+    data = await repo.get_table_data("JOB")
+
+    select_sql = engine.conn.calls[0][0]
+    assert 't.RDB$DB_KEY, t."JOB_CODE"' in select_sql
+    assert "LANGUAGE_REQ" not in select_sql
+    assert [column.name for column in data.columns] == ["JOB_CODE"]
+    assert data.rows == [{"_db_key": "6b6579", "JOB_CODE": "Admin"}]
 
 
 @pytest.mark.asyncio
@@ -376,12 +480,13 @@ async def test_get_table_data_builds_parameterized_filter(monkeypatch):
     assert data.filter_text == "alice"
     select_sql, select_params = engine.conn.calls[0]
     count_sql, count_params = engine.conn.calls[1]
+    predicates = _filter_predicates(select_sql)
     assert 't."NAME" CONTAINING :filter_text' in select_sql
     assert 't."MESSAGE" CONTAINING :filter_text' in select_sql
-    assert 't."ID" = :filter_number' not in select_sql
-    assert "CAST(" not in select_sql
-    assert "VARCHAR(1024)" not in select_sql
-    assert "PHOTO" not in select_sql
+    assert 't."ID" = :filter_number' not in predicates
+    assert "CAST(" not in predicates
+    assert "VARCHAR(1024)" not in predicates
+    assert "PHOTO" not in predicates
     assert 'ORDER BY "NAME" ASC' in select_sql
     assert "WHERE" in count_sql
     assert select_params == {"filter_text": "alice"}
@@ -437,7 +542,8 @@ async def test_get_table_data_skips_integer_columns_for_decimal_search(monkeypat
     await repo.get_table_data("USERS", filter_text="42.5")
 
     select_sql, select_params = engine.conn.calls[0]
-    assert '"ID"' not in select_sql
+    predicates = _filter_predicates(select_sql)
+    assert '"ID"' not in predicates
     assert 't."AMOUNT" = :filter_number_0' in select_sql
     assert 't."RATIO" = :filter_number_1' in select_sql
     assert select_params["filter_text"] == "42.5"
@@ -466,7 +572,8 @@ async def test_get_table_data_skips_integer_columns_outside_type_range(monkeypat
     await repo.get_table_data("USERS", filter_text="30000209")
 
     select_sql, select_params = engine.conn.calls[0]
-    assert '"SMALL_CODE"' not in select_sql
+    predicates = _filter_predicates(select_sql)
+    assert '"SMALL_CODE"' not in predicates
     assert 't."ID" = :filter_number_0' in select_sql
     assert 't."BIG_ID" = :filter_number_1' in select_sql
     assert select_params == {
@@ -481,6 +588,7 @@ async def test_filter_all_supported_column_types_for_text_search(monkeypatch):
     select_sql, select_params = await _capture_filter_sql(
         monkeypatch, FILTER_TEST_COLUMN_TYPES, "needle"
     )
+    predicates = _filter_predicates(select_sql)
 
     assert 't."C_CHAR" CONTAINING :filter_text' in select_sql
     assert 't."C_VARCHAR" CONTAINING :filter_text' in select_sql
@@ -503,8 +611,8 @@ async def test_filter_all_supported_column_types_for_text_search(monkeypatch):
         "C_TIMESTAMP_TZ",
         "C_BLOB",
     ):
-        assert f't."{col}"' not in select_sql
-    assert "CAST(" not in select_sql
+        assert f't."{col}"' not in predicates
+    assert "CAST(" not in predicates
     assert select_params == {"filter_text": "needle"}
 
 
@@ -513,6 +621,7 @@ async def test_filter_all_supported_column_types_for_integer_search(monkeypatch)
     select_sql, select_params = await _capture_filter_sql(
         monkeypatch, FILTER_TEST_COLUMN_TYPES, "42"
     )
+    predicates = _filter_predicates(select_sql)
 
     assert 't."C_CHAR" CONTAINING :filter_text' in select_sql
     assert 't."C_VARCHAR" CONTAINING :filter_text' in select_sql
@@ -538,8 +647,8 @@ async def test_filter_all_supported_column_types_for_integer_search(monkeypatch)
         "C_TIMESTAMP_TZ",
         "C_BLOB",
     ):
-        assert f't."{col}"' not in select_sql
-    assert "CAST(" not in select_sql
+        assert f't."{col}"' not in predicates
+    assert "CAST(" not in predicates
     assert select_params["filter_text"] == "42"
     assert select_params["filter_number_0"] == 42
 
@@ -549,8 +658,9 @@ async def test_filter_all_supported_column_types_for_large_integer_search(monkey
     select_sql, select_params = await _capture_filter_sql(
         monkeypatch, FILTER_TEST_COLUMN_TYPES, "30000209"
     )
+    predicates = _filter_predicates(select_sql)
 
-    assert 't."C_SMALLINT"' not in select_sql
+    assert 't."C_SMALLINT"' not in predicates
     for col in (
         "C_INTEGER",
         "C_BIGINT",
@@ -573,9 +683,10 @@ async def test_filter_all_supported_column_types_for_huge_integer_search(monkeyp
     select_sql, select_params = await _capture_filter_sql(
         monkeypatch, FILTER_TEST_COLUMN_TYPES, "3000000000"
     )
+    predicates = _filter_predicates(select_sql)
 
     for col in ("C_SMALLINT", "C_INTEGER"):
-        assert f't."{col}"' not in select_sql
+        assert f't."{col}"' not in predicates
     for col in (
         "C_BIGINT",
         "C_INT128",
@@ -597,9 +708,10 @@ async def test_filter_all_supported_column_types_for_decimal_search(monkeypatch)
     select_sql, select_params = await _capture_filter_sql(
         monkeypatch, FILTER_TEST_COLUMN_TYPES, "42.5"
     )
+    predicates = _filter_predicates(select_sql)
 
     for col in ("C_SMALLINT", "C_INTEGER", "C_BIGINT", "C_INT128"):
-        assert f't."{col}"' not in select_sql
+        assert f't."{col}"' not in predicates
     for col in (
         "C_FLOAT",
         "C_DOUBLE",
@@ -618,7 +730,7 @@ async def test_filter_all_supported_column_types_for_decimal_search(monkeypatch)
         "C_TIMESTAMP_TZ",
         "C_BLOB",
     ):
-        assert f't."{col}"' not in select_sql
+        assert f't."{col}"' not in predicates
     assert "CAST(" not in select_sql
     assert select_params["filter_text"] == "42.5"
     assert Decimal("42.5") in select_params.values()

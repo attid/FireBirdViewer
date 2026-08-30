@@ -56,7 +56,7 @@ def insert_form(
 
         input_type, placeholder = _field_input_type(col)
 
-        disabled = col.type_name == "BLOB"
+        disabled = col.type_name == "BLOB" or col.is_array
 
         input_kwargs: dict[str, object] = {
             "type": input_type,
@@ -86,6 +86,7 @@ def insert_form(
                 Label(
                     Span(col.name, cls="text-sm font-mono"),
                     Span(col.type_name, cls="badge badge-xs badge-ghost ml-2"),
+                    Span("ARRAY", cls="badge badge-xs badge-info ml-1") if col.is_array else None,
                     cls="label py-1",
                 ),
                 field_control,
@@ -151,16 +152,18 @@ def row_edit_form(
             continue
 
         input_type, placeholder = _field_input_type(col)
-        disabled = col.type_name == "BLOB"
+        disabled = col.type_name == "BLOB" or col.is_array
         current_value = values.get(col.name)
         html_value = _html_input_value(col, current_value)
-        is_required = not col.nullable
+        is_required = not col.nullable and not disabled
 
         badges = [
             Span(col.type_name, cls="badge badge-xs badge-ghost ml-2"),
         ]
         if col.is_primary_key:
             badges.append(Span("PK", cls="badge badge-xs badge-warning ml-1"))
+        if col.is_array:
+            badges.append(Span("ARRAY", cls="badge badge-xs badge-info ml-1"))
         if is_required:
             badges.append(Span("*", cls="text-error ml-1", title="required"))
 

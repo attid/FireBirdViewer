@@ -241,7 +241,8 @@ class FirebirdRepository(DatabasePort):
                     "  COALESCE(rc.PK_FLAG, 0), "
                     "  rf.RDB$DEFAULT_SOURCE, "
                     "  f.RDB$DEFAULT_SOURCE, "
-                    "  f.RDB$COMPUTED_SOURCE "
+                    "  f.RDB$COMPUTED_SOURCE, "
+                    "  COALESCE(f.RDB$DIMENSIONS, 0) "
                     "FROM RDB$RELATION_FIELDS rf "
                     "JOIN RDB$FIELDS f ON rf.RDB$FIELD_SOURCE = f.RDB$FIELD_NAME "
                     "LEFT JOIN ("
@@ -274,6 +275,7 @@ class FirebirdRepository(DatabasePort):
                     relation_default_source,
                     field_default_source,
                     computed_source,
+                    dimensions,
                 ) = row
                 # NOT NULL can be set at relation level (rf) or domain level (f)
                 is_not_null = (rel_null_flag is not None and rel_null_flag == 1) or (
@@ -293,6 +295,7 @@ class FirebirdRepository(DatabasePort):
                         nullable=not is_not_null,
                         is_primary_key=bool(pk_flag),
                         is_computed=update_flag is not None and update_flag == 0,
+                        is_array=bool(dimensions),
                         default_source=_clean_metadata_source(
                             relation_default_source or field_default_source
                         ),
@@ -320,7 +323,8 @@ class FirebirdRepository(DatabasePort):
         """Get paginated data from a table or view."""
         engine = await self._get_engine()
         columns = await self.get_columns(table_name)
-        col_names = [c.name for c in columns]
+        readable_columns = [column for column in columns if not column.is_array]
+        col_names = [c.name for c in readable_columns]
 
         # Validate sort column
         if sort_column and sort_column not in col_names:
@@ -338,12 +342,12 @@ class FirebirdRepository(DatabasePort):
         where_clause = ""
         if filter_text:
             predicates = [
-                _text_filter_predicate(c) for c in columns if _is_filterable_text_column(c)
+                _text_filter_predicate(c) for c in readable_columns if _is_filterable_text_column(c)
             ]
             filter_number = _parse_filter_decimal(filter_text)
             if filter_number is not None:
                 numeric_idx = 0
-                for col in columns:
+                for col in readable_columns:
                     if not _is_filterable_numeric_column(col):
                         continue
                     numeric_value = _numeric_filter_value(col, filter_number)
@@ -356,7 +360,7 @@ class FirebirdRepository(DatabasePort):
 
             filter_boolean = _parse_filter_boolean(filter_text)
             if filter_boolean is not None:
-                boolean_columns = [c for c in columns if c.type_name.upper() == "BOOLEAN"]
+                boolean_columns = [c for c in readable_columns if c.type_name.upper() == "BOOLEAN"]
                 if boolean_columns:
                     params["filter_boolean"] = filter_boolean
                     predicates.extend(
@@ -369,9 +373,11 @@ class FirebirdRepository(DatabasePort):
 
         offset = page * page_size
         # Include RDB$DB_KEY as first column for row identification (used by delete/update)
+        select_columns = ", ".join(f"t.{_quote(column.name)}" for column in readable_columns)
+        select_list = f"t.RDB$DB_KEY, {select_columns}" if select_columns else "t.RDB$DB_KEY"
         query = (
             f"SELECT FIRST {page_size} SKIP {offset} "
-            f"t.RDB$DB_KEY, t.* FROM {quoted_table} t{where_clause}{order_clause}"
+            f"{select_list} FROM {quoted_table} t{where_clause}{order_clause}"
         )
         count_query = f"SELECT COUNT(*) FROM {quoted_table} t{where_clause}"
 
@@ -391,7 +397,7 @@ class FirebirdRepository(DatabasePort):
                 db_key_raw.hex() if isinstance(db_key_raw, bytes) else str(db_key_raw)
             )
             # Remaining columns map to metadata columns
-            for i, col in enumerate(columns):
+            for i, col in enumerate(readable_columns):
                 val = row[i + 1] if (i + 1) < len(row) else None
                 if isinstance(val, bytes):
                     try:
@@ -402,7 +408,7 @@ class FirebirdRepository(DatabasePort):
             rows.append(row_dict)
 
         return PagedData(
-            columns=columns,
+            columns=readable_columns,
             rows=rows,
             total_count=total,
             page=page,
@@ -416,9 +422,12 @@ class FirebirdRepository(DatabasePort):
         """Get one row identified by RDB$DB_KEY (hex-encoded)."""
         engine = await self._get_engine()
         columns = await self.get_columns(table_name)
+        readable_columns = [column for column in columns if not column.is_array]
         quoted_table = _quote(table_name)
         db_key_bytes = bytes.fromhex(db_key_hex)
-        query = f"SELECT t.* FROM {quoted_table} t WHERE t.RDB$DB_KEY = :db_key"
+        select_columns = ", ".join(f"t.{_quote(column.name)}" for column in readable_columns)
+        select_list = select_columns or "t.RDB$DB_KEY"
+        query = f"SELECT {select_list} FROM {quoted_table} t WHERE t.RDB$DB_KEY = :db_key"
 
         async with engine.connect() as conn:
             result = await conn.execute(text(query), {"db_key": db_key_bytes})
@@ -428,7 +437,7 @@ class FirebirdRepository(DatabasePort):
             return {}
 
         row_dict: dict[str, object] = {}
-        for i, col in enumerate(columns):
+        for i, col in enumerate(readable_columns):
             val = row[i] if i < len(row) else None
             if isinstance(val, bytes):
                 try:
@@ -473,6 +482,9 @@ class FirebirdRepository(DatabasePort):
             if col.is_computed:
                 msg = f"Cannot insert into computed column: {col_name}"
                 raise ValueError(msg)
+            if col.is_array:
+                msg = f"Cannot insert into array column: {col_name}"
+                raise ValueError(msg)
 
         insert_data = {col_name: val for col_name, val in data.items() if val != ""}
         if not insert_data:
@@ -515,6 +527,9 @@ class FirebirdRepository(DatabasePort):
             raise ValueError(msg)
         if col.is_computed:
             msg = f"Cannot update computed column: {column_name}"
+            raise ValueError(msg)
+        if col.is_array:
+            msg = f"Cannot update array column: {column_name}"
             raise ValueError(msg)
 
         engine = await self._get_engine()
