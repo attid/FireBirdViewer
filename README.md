@@ -21,6 +21,20 @@ Runs fully offline — no internet required at runtime.
 > Any data-modifying statement (`INSERT`, `UPDATE`, `DELETE`, `DROP`, etc.) is **never**
 > executed by the agent — it only suggests SQL and requires explicit user confirmation.
 
+## Screenshots
+
+| Connect | Browse table data |
+| --- | --- |
+| [![Connect to a Firebird database](docs/screenshots/connect.png)](docs/screenshots/connect.png) | [![Browse and filter table data](docs/screenshots/table-data.png)](docs/screenshots/table-data.png) |
+
+| Edit rows | SQL editor |
+| --- | --- |
+| [![Edit a table row](docs/screenshots/edit-row.png)](docs/screenshots/edit-row.png) | [![Write SQL with schema autocomplete](docs/screenshots/sql-editor.png)](docs/screenshots/sql-editor.png) |
+
+### AI SQL Assistant
+
+[![Ask questions about the database in natural language](docs/screenshots/ai-assistant.png)](docs/screenshots/ai-assistant.png)
+
 ## Tech Stack
 
 - **Backend:** Python 3.13, FastHTML, SQLAlchemy 2.0 async
