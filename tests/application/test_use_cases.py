@@ -93,7 +93,10 @@ class FakeDatabasePort(DatabasePort):
     async def get_procedure_source(self, proc_name: str) -> ProcedureInfo:
         return ProcedureInfo(name=proc_name, source="BEGIN END")
 
-    async def execute_query(self, sql: str) -> QueryResult:
+    async def execute_query(self, sql: str, policy=None) -> QueryResult:
+        return QueryResult(columns=["RESULT"], rows=[[1]], row_count=1)
+
+    async def execute_readonly_query(self, sql: str, policy=None) -> QueryResult:
         return QueryResult(columns=["RESULT"], rows=[[1]], row_count=1)
 
     async def delete_row(self, table_name: str, db_key_hex: str) -> int:

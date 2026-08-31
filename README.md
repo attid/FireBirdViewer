@@ -17,7 +17,9 @@ Runs fully offline — no internet required at runtime.
 - **AI SQL Assistant** — one agent loop with server-managed or Browser BYOK providers
 - **Docker** — multi-stage build, fully offline, no CDN dependencies
 
-> **AI Assistant safety:** The agent executes only read-only `SELECT` queries automatically.
+> **AI Assistant safety:** Automatic database tools run in a genuine Firebird
+> `READ ONLY` transaction. The public demo also uses a separate account with only
+> `SELECT` grants.
 > Any data-modifying statement (`INSERT`, `UPDATE`, `DELETE`, `DROP`, etc.) is **never**
 > executed by the agent — it only suggests SQL and requires explicit user confirmation.
 
@@ -80,10 +82,16 @@ Open `http://localhost:5001` in your browser.
 
 ```bash
 docker build -t firebird-viewer .
-docker run -p 5001:5001 firebird-viewer
+docker run --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --tmpfs /tmp:size=32m,mode=1777 \
+  --tmpfs /run/firebirdviewer:size=1m,mode=0700,uid=10001,gid=10001 \
+  -e SESSION_SECRET_KEY=replace_with_a_random_secret_of_at_least_32_characters \
+  -p 5001:5001 firebird-viewer
 ```
 
 No internet required inside the container — all assets are baked in at build time.
+`SESSION_SECRET_KEY` is mandatory; missing, short, and known placeholder values
+fail startup instead of silently weakening encrypted sessions.
 
 ### Demo environment
 
@@ -94,7 +102,9 @@ deployment instructions.
 To serve the app under a sub-path:
 
 ```bash
-docker run -p 5001:5001 -e APP_ROOT_PATH=/viewer firebird-viewer
+docker run -p 5001:5001 \
+  -e SESSION_SECRET_KEY=replace_with_a_random_secret_of_at_least_32_characters \
+  -e APP_ROOT_PATH=/viewer firebird-viewer
 ```
 
 Then open `http://localhost:5001/viewer`.

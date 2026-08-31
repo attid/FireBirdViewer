@@ -30,7 +30,6 @@ _MUTATING_PATTERN = re.compile(
     r"^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|MERGE|EXECUTE|RECREATE)\b",
     re.IGNORECASE,
 )
-_READ_ONLY_PATTERN = re.compile(r"^\s*(SELECT|WITH)\b", re.IGNORECASE)
 _MAX_AGENT_STEPS = 8
 _STATE_MAX_AGE = 86400
 
@@ -97,14 +96,7 @@ async def _run_select(db: DatabasePort, sql: str) -> str:
     Returns:
         A text representation of the query results.
     """
-    stripped = re.sub(r"^\s*--[^\n]*\n?", "", sql, flags=re.MULTILINE).lstrip()
-    if not _READ_ONLY_PATTERN.match(stripped) or _is_dml(stripped):
-        return (
-            "ERROR: I cannot execute this statement automatically. "
-            "Please show the SQL to the user and ask them to confirm execution."
-        )
-
-    result = await db.execute_query(sql)
+    result = await db.execute_readonly_query(sql)
     if result.error:
         return f"Query error: {result.error}"
 
@@ -139,7 +131,7 @@ def _format_query_result(result: QueryResult) -> str:
 
 
 def _state_fernet() -> Fernet:
-    secret = os.environ.get("SESSION_SECRET_KEY", "change-me-in-production")
+    secret = os.environ["SESSION_SECRET_KEY"]
     key = base64.urlsafe_b64encode(sha256(secret.encode("utf-8")).digest())
     return Fernet(key)
 

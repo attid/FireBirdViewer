@@ -16,6 +16,9 @@ from src.repository.ai_agent import (
 
 
 class FakeDatabase:
+    def __init__(self):
+        self.readonly_sql = []
+
     async def list_tables(self):
         return ["USERS"]
 
@@ -26,7 +29,8 @@ class FakeDatabase:
         assert table_name == "USERS"
         return []
 
-    async def execute_query(self, sql):
+    async def execute_readonly_query(self, sql, policy=None):
+        self.readonly_sql.append(sql)
         return QueryResult(columns=["ID"], rows=[[1]], row_count=1)
 
 
@@ -85,7 +89,7 @@ async def test_continue_agent_turn_executes_read_only_tool(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_continue_agent_turn_rejects_mutating_tool_sql(monkeypatch):
+async def test_continue_agent_turn_relies_on_read_only_transaction_for_mutating_sql(monkeypatch):
     monkeypatch.setenv("SESSION_SECRET_KEY", "test-relay-secret")
     first = start_agent_turn("Change users", base_url="https://llm.example/v1", model="test")
     response = AiModelResponse(
@@ -101,9 +105,10 @@ async def test_continue_agent_turn_rejects_mutating_tool_sql(monkeypatch):
         )
     )
 
-    step = await continue_agent_turn(first.state, response, FakeDatabase())
+    database = FakeDatabase()
+    await continue_agent_turn(first.state, response, database)
 
-    assert "cannot execute" in step.request.messages[-1].content.lower()
+    assert database.readonly_sql == ["EXECUTE PROCEDURE CHANGE_USERS"]
 
 
 @pytest.mark.asyncio

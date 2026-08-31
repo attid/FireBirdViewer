@@ -94,6 +94,16 @@ class QueryResult(BaseModel):
     rows: list[list] = Field(default_factory=list)  # noqa: UP006
     row_count: int = 0
     error: str = ""
+    truncated: bool = False
+    truncation_reason: str = ""
+
+
+class QueryExecutionPolicy(BaseModel):
+    """Optional resource boundary for arbitrary SQL execution."""
+
+    timeout_ms: int | None = Field(default=None, ge=1)
+    max_rows: int | None = Field(default=None, ge=1)
+    max_bytes: int | None = Field(default=None, ge=1)
 
 
 class PagedData(BaseModel):

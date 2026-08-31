@@ -1,0 +1,28 @@
+http:
+  routers:
+    viewer:
+      entryPoints: [web]
+      rule: PathPrefix(`/`)
+      service: viewer
+      middlewares: [public-security, public-rate, public-inflight]
+
+  services:
+    viewer:
+      loadBalancer:
+        servers:
+          - url: http://viewer:5001
+
+  middlewares:
+    public-security:
+      headers:
+        contentTypeNosniff: true
+        frameDeny: true
+        referrerPolicy: no-referrer
+        permissionsPolicy: camera=(), microphone=(), geolocation=()
+    public-rate:
+      rateLimit:
+        average: 20
+        burst: 40
+    public-inflight:
+      inFlightReq:
+        amount: 20

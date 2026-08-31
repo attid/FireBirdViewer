@@ -8,9 +8,11 @@ import json
 import logging
 import os
 import re
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fasthtml.common import *
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
 from starlette.routing import Mount
@@ -59,12 +61,14 @@ from src.interface.components.layout import (
 from src.interface.components.procedure import error_alert, procedure_result, procedure_view
 from src.interface.components.sql import query_result, sql_editor
 from src.interface.components.table_navigation import table_url
-from src.interface.demo import DemoSettings
+from src.interface.demo import DemoQueryLimiter, DemoSettings
 from src.interface.paths import root_path, url_path
+from src.interface.security import SecurityHeadersMiddleware, public_error
 from src.interface.session import (
     create_session_token,
     get_cookie_name,
     load_session,
+    require_session_secret,
 )
 from src.repository.ai_agent import ask_agent, continue_agent_turn, start_agent_turn
 from src.repository.ai_transport import normalize_model_response
@@ -87,11 +91,17 @@ def _read_version() -> str:
 APP_VERSION = _read_version()
 APP_ROOT_PATH = root_path()
 DEMO_SETTINGS = DemoSettings.from_env()
+SESSION_SECRET = require_session_secret()
+QUERY_LIMITER = DemoQueryLimiter(DEMO_SETTINGS)
 
 app, rt = fast_app(
     pico=False,
     default_hdrs=False,
     static_path=None,
+    secret_key=SESSION_SECRET,
+    key_fname="/run/firebirdviewer/.sesskey",
+    same_site="strict",
+    middleware=(Middleware(SecurityHeadersMiddleware),),
     routes=(Mount(url_path("/static"), StaticFiles(directory="static"), name="static"),),
     hdrs=(
         Meta(charset="utf-8"),
@@ -114,22 +124,10 @@ app, rt = fast_app(
 
 
 def _clean_db_error(exc: Exception | str) -> str:
-    """Extract a human-readable message from a Firebird/SQLAlchemy exception.
-
-    Raw errors look like:
-      (firebird.driver.types.DatabaseError) validation error for column
-      "CARDS"."MONEY", value "*** null ***" [SQL: INSERT ...] [parameters: ...]
-      (Background on this error at: ...)
-
-    We strip the SQL, parameters, and background URL, keeping only the first
-    meaningful sentence.  Accepts both Exception objects and raw error strings.
-    """
+    """Sanitize a database error for non-public diagnostic callers."""
     msg = str(exc)
-    # Remove "[SQL: ...]" blocks
     msg = re.sub(r"\s*\[SQL:.*", "", msg, flags=re.DOTALL)
-    # Remove "(Background on this error at: ...)"
     msg = re.sub(r"\s*\(Background on this error.*", "", msg, flags=re.DOTALL)
-    # Strip the leading driver class prefix if present
     msg = re.sub(r"^\([\w.]+\)\s*", "", msg)
     return msg.strip() or str(exc)
 
@@ -137,7 +135,11 @@ def _clean_db_error(exc: Exception | str) -> str:
 def _get_params(request: Request) -> ConnectionParams | None:
     """Extract connection params from signed session cookie."""
     cookie = request.cookies.get(get_cookie_name())
-    return load_session(cookie)
+    params = load_session(cookie)
+    if params is not None and not DEMO_SETTINGS.allows_connection(params.database, params.user):
+        log.warning("rejected out-of-bound demo session")
+        return None
+    return params
 
 
 def _get_repo(request: Request) -> FirebirdRepository | None:
@@ -145,7 +147,29 @@ def _get_repo(request: Request) -> FirebirdRepository | None:
     params = _get_params(request)
     if params is None:
         return None
-    return FirebirdRepository(params)
+    return FirebirdRepository(params, DEMO_SETTINGS.query_policy())
+
+
+def _get_ai_repo(request: Request) -> FirebirdRepository | None:
+    """Build the least-privilege repository used by automatic AI tools."""
+    if _get_params(request) is None:
+        return None
+    params = DEMO_SETTINGS.readonly_connection() or _get_params(request)
+    return FirebirdRepository(params, DEMO_SETTINGS.query_policy()) if params is not None else None
+
+
+@asynccontextmanager
+async def _query_slot():
+    """Limit concurrent arbitrary database work in public demo mode."""
+    if DEMO_SETTINGS.enabled:
+        async with QUERY_LIMITER.slot():
+            yield
+    else:
+        yield
+
+
+def _safe_error(request: Request, exc: Exception, message: str = "Operation failed.") -> str:
+    return public_error(request, exc, message)
 
 
 # ---------------------------------------------------------------------------
@@ -184,12 +208,21 @@ async def post(request: Request, database: str, user: str, password: str):
     except Exception as exc:
         return Title("FireBird Viewer"), page_layout(
             connect_form(database=database, user=user, demo=DEMO_SETTINGS),
-            error_alert(_clean_db_error(exc)),
+            error_alert(_safe_error(request, exc, "Connection failed.")),
         )
 
     token = create_session_token(params)
     response = RedirectResponse(url_path("/dashboard"), status_code=303)
-    response.set_cookie(get_cookie_name(), token, httponly=True, max_age=86400)
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+    response.set_cookie(
+        get_cookie_name(),
+        token,
+        httponly=True,
+        secure=forwarded_proto == "https" or request.url.scheme == "https",
+        samesite="strict",
+        path=APP_ROOT_PATH or "/",
+        max_age=86400,
+    )
     return response
 
 
@@ -207,7 +240,7 @@ async def get(request: Request):
         db_name = params.database if params else "Unknown"
     except Exception as exc:
         return Title("FireBird Viewer"), page_layout(
-            error_alert(f"Failed to load database objects: {exc}")
+            error_alert(_safe_error(request, exc, "Failed to load database objects."))
         )
     finally:
         await repo.close()
@@ -259,7 +292,7 @@ async def get(
         )
         return data_table(data, obj_name, obj_type)
     except Exception as exc:
-        return error_alert(f"Error loading {obj_name}: {exc}")
+        return error_alert(_safe_error(request, exc, f"Failed to load {obj_name}."))
     finally:
         await repo.close()
 
@@ -276,7 +309,7 @@ async def get(request: Request, table_name: str):
         columns = await use_case.execute(table_name)
         return insert_form(columns, table_name)
     except Exception as exc:
-        return error_alert(f"Failed to load columns: {exc}")
+        return error_alert(_safe_error(request, exc, "Failed to load columns."))
     finally:
         await repo.close()
 
@@ -312,9 +345,11 @@ async def post(request: Request, table_name: str):
         try:
             use_case = GetColumnsUseCase(repo)
             columns = await use_case.execute(table_name)
-            return insert_form(columns, table_name, values=data, error=_clean_db_error(exc))
+            return insert_form(
+                columns, table_name, values=data, error=_safe_error(request, exc, "Insert failed.")
+            )
         except Exception:
-            return error_alert(f"Insert failed: {_clean_db_error(exc)}")
+            return error_alert(_safe_error(request, exc, "Insert failed."))
     finally:
         await repo.close()
 
@@ -337,7 +372,7 @@ async def delete(request: Request, table_name: str, db_key: str):
         data = await view_uc.execute(table_name, page=0, page_size=50)
         return data_table(data, table_name, "table")
     except Exception as exc:
-        return error_alert(f"Delete failed: {_clean_db_error(exc)}")
+        return error_alert(_safe_error(request, exc, "Delete failed."))
     finally:
         await repo.close()
 
@@ -371,7 +406,7 @@ async def get(
             filter_text=filter,
         )
     except Exception as exc:
-        return error_alert(f"Failed to load row: {_clean_db_error(exc)}")
+        return error_alert(_safe_error(request, exc, "Failed to load row."))
     finally:
         await repo.close()
 
@@ -448,13 +483,13 @@ async def post(
                 table_name,
                 db_key,
                 values=display_values,
-                error=_clean_db_error(exc),
+                error=_safe_error(request, exc, "Update failed."),
                 page=page,
                 sort=sort,
                 filter_text=filter,
             )
         except Exception:
-            return error_alert(f"Update failed: {_clean_db_error(exc)}")
+            return error_alert(_safe_error(request, exc, "Update failed."))
     finally:
         await repo.close()
 
@@ -481,7 +516,7 @@ async def put(request: Request, table_name: str, db_key: str):
         display = value if value != "" else None
         return JSONResponse({"ok": True, "value": display})
     except Exception as exc:
-        return JSONResponse({"ok": False, "error": _clean_db_error(exc)})
+        return JSONResponse({"ok": False, "error": _safe_error(request, exc)})
     finally:
         await repo.close()
 
@@ -505,10 +540,10 @@ async def post(request: Request, proc_name: str):
         result = await uc.execute(proc_name, params)
         # Clean raw DB errors returned inside QueryResult
         if result.error:
-            result = QueryResult(error=_clean_db_error(result.error))
+            result = QueryResult(error=_safe_error(request, RuntimeError(result.error)))
         return procedure_result(result, proc_name)
     except Exception as exc:
-        return error_alert(f"Execution failed: {_clean_db_error(exc)}")
+        return error_alert(_safe_error(request, exc, "Execution failed."))
     finally:
         await repo.close()
 
@@ -525,7 +560,7 @@ async def get(request: Request):
         schema_data = await use_case.execute()
         return sql_editor(schema=schema_data.schema)
     except Exception as exc:
-        return error_alert(f"Failed to load schema: {exc}")
+        return error_alert(_safe_error(request, exc, "Failed to load schema."))
     finally:
         await repo.close()
 
@@ -542,15 +577,16 @@ async def post(request: Request):
         sql = str(form.get("sql", ""))
 
         uc = ExecuteQueryUseCase(repo)
-        result = await uc.execute(sql)
+        async with _query_slot():
+            result = await uc.execute(sql, DEMO_SETTINGS.query_policy())
         # Clean raw DB errors returned inside QueryResult
         if result.error:
-            result = QueryResult(error=_clean_db_error(result.error))
+            result = QueryResult(error=_safe_error(request, RuntimeError(result.error)))
         return query_result(result)
     except ValueError as exc:
         return error_alert(str(exc))
     except Exception as exc:
-        return error_alert(_clean_db_error(exc))
+        return error_alert(_safe_error(request, exc))
     finally:
         await repo.close()
 
@@ -581,7 +617,7 @@ async def get(request: Request):
 @rt(url_path("/ai/ask"))
 async def post(request: Request):
     """Handle an AI question using only server-managed provider settings."""
-    repo = _get_repo(request)
+    repo = _get_ai_repo(request)
     if repo is None:
         return error_alert("Not connected. Please reconnect.")
 
@@ -631,9 +667,10 @@ async def post(request: Request):
             )
 
         uc = AskAiUseCase(repo, ask_fn=ask_agent)
-        response_text, sql, is_dml, updated_history = await uc.execute(
-            agent_question, settings, history_json=history_json
-        )
+        async with _query_slot():
+            response_text, sql, is_dml, updated_history = await uc.execute(
+                agent_question, settings, history_json=history_json
+            )
 
         # Build assistant message
         ai_msg = AiMessage(
@@ -660,7 +697,7 @@ async def post(request: Request):
         return Div(
             Div(
                 Div(
-                    Span(f"Error: {_clean_db_error(exc)}"),
+                    Span(f"Error: {_safe_error(request, exc)}"),
                     cls="chat-bubble chat-bubble-error",
                 ),
                 cls="chat chat-start",
@@ -673,7 +710,7 @@ async def post(request: Request):
 @rt(url_path("/ai/relay/start"))
 async def post(request: Request):
     """Start browser-relayed AI without receiving the user's API key."""
-    repo = _get_repo(request)
+    repo = _get_ai_repo(request)
     if repo is None:
         return JSONResponse({"error": "Not connected. Please reconnect."}, status_code=401)
     try:
@@ -697,7 +734,7 @@ async def post(request: Request):
         result["user_html"] = str(ai_user_message(question))
         return JSONResponse(result)
     except Exception as exc:
-        return JSONResponse({"error": _clean_db_error(exc)}, status_code=400)
+        return JSONResponse({"error": _safe_error(request, exc)}, status_code=400)
     finally:
         await repo.close()
 
@@ -705,7 +742,7 @@ async def post(request: Request):
 @rt(url_path("/ai/relay/continue"))
 async def post(request: Request):
     """Continue browser-relayed AI and execute validated tools on the backend."""
-    repo = _get_repo(request)
+    repo = _get_ai_repo(request)
     if repo is None:
         return JSONResponse({"error": "Not connected. Please reconnect."}, status_code=401)
     try:
@@ -713,7 +750,8 @@ async def post(request: Request):
         state = payload.state.strip()
         provider_response = normalize_model_response(payload.provider_response)
         use_case = ContinueAiRelayUseCase(repo, continue_agent_turn)
-        step = await use_case.execute(state, provider_response)
+        async with _query_slot():
+            step = await use_case.execute(state, provider_response)
         result = step.model_dump(mode="json")
         if step.status == "complete":
             result["html"] = str(
@@ -728,7 +766,7 @@ async def post(request: Request):
             )
         return JSONResponse(result)
     except Exception as exc:
-        return JSONResponse({"error": _clean_db_error(exc)}, status_code=400)
+        return JSONResponse({"error": _safe_error(request, exc)}, status_code=400)
     finally:
         await repo.close()
 
@@ -750,11 +788,11 @@ async def post(request: Request):
         result = await uc.execute(sql)
         # Clean raw DB errors
         if result.error:
-            result = QueryResult(error=_clean_db_error(result.error))
+            result = QueryResult(error=_safe_error(request, RuntimeError(result.error)))
         return ai_dml_result(result, sql=sql)
     except Exception as exc:
         return ai_dml_result(
-            QueryResult(error=_clean_db_error(exc)), sql=sql if "sql" in locals() else ""
+            QueryResult(error=_safe_error(request, exc)), sql=sql if "sql" in locals() else ""
         )
     finally:
         await repo.close()
@@ -764,9 +802,16 @@ async def post(request: Request):
 async def get(request: Request):
     """Clear session and redirect to connect page."""
     response = RedirectResponse(url_path("/"), status_code=303)
-    response.delete_cookie(get_cookie_name())
+    response.delete_cookie(get_cookie_name(), path=APP_ROOT_PATH or "/")
     return response
 
 
+@rt(url_path("/healthz"))
+async def get():
+    """Container liveness endpoint without database or credential disclosure."""
+    return JSONResponse({"status": "ok", "version": APP_VERSION})
+
+
 log.info("FireBird Viewer v%s starting at %s", APP_VERSION, APP_ROOT_PATH or "/")
-serve()
+if __name__ == "__main__":
+    serve(reload=False)

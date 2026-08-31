@@ -13,9 +13,23 @@ from cryptography.fernet import Fernet, InvalidToken
 
 from src.domain.models import ConnectionParams
 
-_SECRET_KEY = os.environ.get("SESSION_SECRET_KEY", "change-me-in-production")
+_PLACEHOLDER_SECRETS = {
+    "",
+    "change-me-in-production",
+    "change_me",
+    "replace_with_random_session_secret",
+}
 _COOKIE_NAME = "fb_session"
 _MAX_AGE = 86400  # 24 hours
+
+
+def require_session_secret() -> str:
+    """Return the runtime session secret or fail closed on unsafe values."""
+    secret = os.environ.get("SESSION_SECRET_KEY", "").strip()
+    if secret.casefold() in _PLACEHOLDER_SECRETS or len(secret) < 32:
+        msg = "SESSION_SECRET_KEY must be set to a non-placeholder value of at least 32 characters"
+        raise RuntimeError(msg)
+    return secret
 
 
 def _build_fernet(secret_key: str) -> Fernet:
@@ -23,6 +37,7 @@ def _build_fernet(secret_key: str) -> Fernet:
     return Fernet(key)
 
 
+_SECRET_KEY = require_session_secret()
 _fernet = _build_fernet(_SECRET_KEY)
 
 

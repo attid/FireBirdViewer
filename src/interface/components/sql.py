@@ -68,7 +68,16 @@ def query_result(result: QueryResult):
             cells.append(Td(display, cls=f"text-xs {null_cls}"))
         body_rows.append(Tr(*cells, cls="hover"))
 
+    truncation = (
+        Div(
+            f"Result truncated by the demo security policy: {result.truncation_reason}.",
+            cls="alert alert-warning text-sm mb-3",
+        )
+        if result.truncated
+        else None
+    )
     return Div(
+        truncation,
         H4(f"Results ({result.row_count} rows)", cls="font-semibold text-sm mb-2"),
         Div(
             Table(

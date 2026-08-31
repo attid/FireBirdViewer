@@ -28,6 +28,10 @@ test:
 test-fast:
     uv run pytest tests/ -v -m "not integration"
 
+# Destructive only to its uniquely named disposable Docker project and volume.
+test-integration:
+    RUN_DOCKER_INTEGRATION=1 uv run pytest tests/integration/test_demo_security.py -v
+
 # Structural tests: import boundaries
 arch-test:
     uv run python .linters/check_imports.py

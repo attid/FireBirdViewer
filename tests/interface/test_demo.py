@@ -5,8 +5,10 @@ import importlib
 import fasthtml.common
 from starlette.testclient import TestClient
 
+from src.domain.models import ConnectionParams
 from src.interface.components.layout import connect_form, dashboard_layout
 from src.interface.demo import DemoSettings
+from src.interface.session import create_session_token, get_cookie_name
 
 
 def _load_main_without_server():
@@ -75,6 +77,56 @@ def test_demo_route_rejects_another_database_before_connecting(monkeypatch):
 
     assert response.status_code == 200
     assert "Demo mode can connect only to the bundled database" in response.text
+
+
+def test_demo_rejects_validly_signed_out_of_boundary_session(monkeypatch):
+    monkeypatch.setenv("DEMO_MODE", "true")
+    main = _load_main_without_server()
+
+    class _UnexpectedRepository:
+        def __init__(self, params, *args):
+            raise AssertionError("repository must not be constructed")
+
+    monkeypatch.setattr(main, "FirebirdRepository", _UnexpectedRepository)
+    token = create_session_token(
+        ConnectionParams(database="internal:secret", user="demo", password="demo")
+    )
+    client = TestClient(main.app)
+    client.cookies.set(get_cookie_name(), token)
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
+
+
+def test_https_connect_cookie_has_complete_security_contract(monkeypatch):
+    monkeypatch.delenv("DEMO_MODE", raising=False)
+    main = _load_main_without_server()
+
+    class _Repository:
+        def __init__(self, params):
+            pass
+
+        async def test_connection(self):
+            return True
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(main, "FirebirdRepository", _Repository)
+    client = TestClient(main.app, base_url="https://viewer.example")
+    response = client.post(
+        "/connect",
+        data={"database": "db:alias", "user": "alice", "password": "secret"},
+        follow_redirects=False,
+    )
+
+    cookie = response.headers["set-cookie"]
+    assert "HttpOnly" in cookie
+    assert "Secure" in cookie
+    assert "SameSite=strict" in cookie
+    assert "Path=/" in cookie
 
 
 def test_normal_mode_does_not_apply_demo_connection_boundary(monkeypatch):

@@ -8,8 +8,8 @@ from decimal import Decimal
 
 import pytest
 
-from src.domain.models import Column, ConnectionParams
-from src.repository.firebird import FirebirdRepository, _map_fb_type
+from src.domain.models import Column, ConnectionParams, QueryExecutionPolicy
+from src.repository.firebird import FirebirdRepository, _bounded_rows, _map_fb_type
 
 
 def _repo() -> FirebirdRepository:
@@ -85,11 +85,15 @@ class _FakeEngine:
 class _RawQueryResult:
     returns_rows = True
 
+    def __init__(self):
+        self.rows = [["OK"]]
+
     def keys(self):
         return ["CRRESULT"]
 
-    def fetchall(self):
-        return [["OK"]]
+    def fetchmany(self, size):
+        rows, self.rows = self.rows[:size], self.rows[size:]
+        return rows
 
 
 class _RawQueryConnection(_FakeConnection):
@@ -152,6 +156,19 @@ end"""
     assert result.columns == ["CRRESULT"]
     assert result.rows == [["OK"]]
     assert engine.conn.raw_sql == [sql]
+
+
+def test_bounded_rows_stops_without_fetchall():
+    result = _RawQueryResult()
+    result.rows = [["one"], ["two"], ["three"]]
+
+    rows, truncated, reason = _bounded_rows(
+        result, QueryExecutionPolicy(max_rows=2, max_bytes=1024)
+    )
+
+    assert rows == [["one"], ["two"]]
+    assert truncated is True
+    assert reason == "limited to 2 rows"
 
 
 @pytest.mark.parametrize(

@@ -93,11 +93,28 @@ Internet traffic from the application server.
 - Connection params serialized into encrypted Fernet cookie
 - 24h expiry, httponly, no client-side access to credentials
 - Each request rebuilds repository from cookie -- stateless server
+- A non-placeholder runtime secret of at least 32 characters is mandatory
+- Demo mode revalidates database and user after every cookie decode
+
+## Public Demo Security Boundary
+
+The disposable demo intentionally keeps full user-confirmed SQL and DDL. It
+contains that privilege with alias-only Firebird access, database statement
+timeouts, bounded result fetching, concurrency controls, and an hourly reset.
+Automatic AI tools use a separate least-privilege identity and a Firebird
+`READ ONLY` transaction; lexical SQL classification is presentation metadata,
+not the enforcement boundary.
+
+The viewer container runs as UID/GID 10001 with a read-only root filesystem.
+Traefik is the only published demo service, uses a file provider without access
+to the Docker socket, and reaches viewer over a frontend network. Firebird and
+the reset worker remain on an internal backend network.
 
 ## Key Design Decisions
 
 See `adr/` for full reasoning. Summary:
 
 - **ADR-001**: FastHTML + sqlalchemy-firebird-async + DaisyUI chosen as stack
+- **ADR-004**: full disposable-demo SQL is contained by database, HTTP, and container boundaries
 - No SPA, no JS framework -- HTMX handles all dynamic UI
 - Async SQLAlchemy with firebird-driver (threaded) for performance

@@ -1,34 +1,28 @@
-# FireBird Viewer — Docker Compose
-#
-# Usage:
-#   docker compose up -d
-#
-# Environment variables (all optional):
-#
-#   AI_BASE_URL  — OpenAI-compatible API base URL
-#                  (e.g. https://api.openai.com/v1, https://openrouter.ai/api/v1,
-#                   http://host.docker.internal:11434/v1 for local Ollama)
-#   AI_API_KEY   — API key for the LLM provider
-#   AI_MODEL     — Model name (e.g. gpt-4o-mini, google/gemini-2.0-flash-exp)
-#   APP_ROOT_PATH — optional site sub-path, e.g. /viewer or /db
-#
-# AI_BASE_URL and AI_MODEL pre-fill the UI settings.
-# AI_API_KEY stays on the server only (never sent to the browser)
-# and is used as a fallback when the user doesn't provide their own key.
-
+# Replace SESSION_SECRET_KEY before starting. Placeholder values fail closed.
 services:
   viewer:
     build: .
-    # image: ghcr.io/attid/firebirdviewer:latest  # uncomment to use pre-built image
-    container_name: firebird-viewer
+    image: ghcr.io/attid/firebirdviewer:latest
     restart: unless-stopped
-    ports:
-      - "5001:5001"
+    ports: ["5001:5001"]
     environment:
+      - SESSION_SECRET_KEY=replace_with_random_session_secret
+      - APP_ROOT_PATH=
       - TZ=Europe/Moscow
-      - SESSION_SECRET_KEY=${SESSION_SECRET_KEY:-change-me-in-production}
-      - APP_ROOT_PATH=${APP_ROOT_PATH:-}
-      # AI Assistant (optional — remove or leave empty to skip)
-      # - AI_BASE_URL=https://openrouter.ai/api/v1
-      # - AI_API_KEY=sk-or-...
-      # - AI_MODEL=google/gemini-2.0-flash-exp
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      - /run/firebirdviewer:size=1m,mode=0700,uid=10001,gid=10001
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "5"}

@@ -4,8 +4,11 @@ All Firebird-specific SQL queries live here. The rest of the application
 interacts with Firebird only through this module.
 """
 
+import asyncio
 from decimal import Decimal, InvalidOperation
 
+from firebird.driver import connect, tpb, transaction
+from firebird.driver.types import Isolation, TraAccessMode
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
@@ -16,6 +19,7 @@ from src.domain.models import (
     PagedData,
     ProcedureInfo,
     ProcedureParam,
+    QueryExecutionPolicy,
     QueryResult,
 )
 
@@ -159,8 +163,11 @@ def _clean_metadata_source(value: object) -> str:
 class FirebirdRepository(DatabasePort):
     """Async repository for Firebird database operations."""
 
-    def __init__(self, params: ConnectionParams) -> None:
+    def __init__(
+        self, params: ConnectionParams, default_policy: QueryExecutionPolicy | None = None
+    ) -> None:
         self._params = params
+        self._default_policy = default_policy
         self._engine: AsyncEngine | None = None
 
     async def _get_engine(self) -> AsyncEngine:
@@ -715,31 +722,102 @@ class FirebirdRepository(DatabasePort):
         except Exception as exc:
             return QueryResult(error=str(exc))
 
-    async def execute_query(self, sql: str) -> QueryResult:
-        """Execute an arbitrary SQL query and return results."""
+    async def _execute_query(self, sql: str, policy: QueryExecutionPolicy | None) -> QueryResult:
         engine = await self._get_engine()
         try:
             async with engine.connect() as conn:
+                if policy and policy.timeout_ms:
+                    await conn.exec_driver_sql(
+                        f"SET STATEMENT TIMEOUT {policy.timeout_ms} MILLISECOND"
+                    )
                 result = await conn.exec_driver_sql(sql)
                 if result.returns_rows:
                     cols = list(result.keys())
-                    raw_rows = result.fetchall()
-                    rows = []
-                    for row in raw_rows:
-                        processed = []
-                        for val in row:
-                            if isinstance(val, bytes):
-                                processed.append(val.hex())
-                            else:
-                                processed.append(val)
-                        rows.append(processed)
+                    rows, truncated, reason = _bounded_rows(result, policy)
                     return QueryResult(
                         columns=cols,
                         rows=rows,
                         row_count=len(rows),
+                        truncated=truncated,
+                        truncation_reason=reason,
                     )
                 else:
                     await conn.commit()
                     return QueryResult(row_count=result.rowcount or 0)
         except Exception as exc:
             return QueryResult(error=str(exc))
+
+    async def execute_query(
+        self, sql: str, policy: QueryExecutionPolicy | None = None
+    ) -> QueryResult:
+        """Execute arbitrary SQL with optional server-enforced resource bounds."""
+        return await self._execute_query(sql, policy or self._default_policy)
+
+    async def execute_readonly_query(
+        self, sql: str, policy: QueryExecutionPolicy | None = None
+    ) -> QueryResult:
+        """Execute SQL in a genuine Firebird READ ONLY transaction."""
+        return await asyncio.to_thread(
+            self._execute_readonly_sync, sql, policy or self._default_policy
+        )
+
+    def _execute_readonly_sync(self, sql: str, policy: QueryExecutionPolicy | None) -> QueryResult:
+        try:
+            with connect(
+                self._params.database,
+                user=self._params.user,
+                password=self._params.password,
+                charset="UTF8",
+            ) as connection:
+                if policy and policy.timeout_ms:
+                    connection.execute_immediate(
+                        f"SET STATEMENT TIMEOUT {policy.timeout_ms} MILLISECOND"
+                    )
+                manager = connection.transaction_manager(
+                    tpb(
+                        Isolation.READ_COMMITTED_RECORD_VERSION,
+                        access_mode=TraAccessMode.READ,
+                    )
+                )
+                with transaction(manager):
+                    cursor = manager.cursor()
+                    cursor.execute(sql)
+                    if cursor.description is None:
+                        return QueryResult(row_count=cursor.rowcount or 0)
+                    columns = [column[0].strip() for column in cursor.description]
+                    rows, truncated, reason = _bounded_rows(cursor, policy)
+                    return QueryResult(
+                        columns=columns,
+                        rows=rows,
+                        row_count=len(rows),
+                        truncated=truncated,
+                        truncation_reason=reason,
+                    )
+        except Exception as exc:
+            return QueryResult(error=str(exc))
+
+
+def _bounded_rows(result, policy: QueryExecutionPolicy | None) -> tuple[list[list], bool, str]:
+    """Fetch rows incrementally and stop at configured row or byte boundaries."""
+    rows: list[list] = []
+    byte_count = 0
+    batch_size = min(policy.max_rows if policy and policy.max_rows else 256, 256)
+    while True:
+        batch = result.fetchmany(batch_size)
+        if not batch:
+            return rows, False, ""
+        for raw_row in batch:
+            processed = [value.hex() if isinstance(value, bytes) else value for value in raw_row]
+            row_bytes = sum(
+                len(str(value).encode("utf-8", errors="replace")) for value in processed
+            )
+            if policy and policy.max_rows is not None and len(rows) >= policy.max_rows:
+                return rows, True, f"limited to {policy.max_rows} rows"
+            if (
+                policy
+                and policy.max_bytes is not None
+                and byte_count + row_bytes > policy.max_bytes
+            ):
+                return rows, True, f"limited to {policy.max_bytes} bytes"
+            rows.append(processed)
+            byte_count += row_bytes

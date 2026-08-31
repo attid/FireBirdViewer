@@ -2,6 +2,12 @@
 set -euo pipefail
 
 : "${FIREBIRD_ROOT_PASSWORD:?FIREBIRD_ROOT_PASSWORD is required}"
+case "${FIREBIRD_ROOT_PASSWORD,,}" in
+  secret|masterkey|change_me|replace_with_random_root_password)
+    echo "FIREBIRD_ROOT_PASSWORD must not be a known placeholder" >&2
+    exit 78
+    ;;
+esac
 
 RESET_EVERY_SECONDS="${RESET_EVERY_SECONDS:-3600}"
 DB_ALIAS_RAW="${DB_ALIAS:-employee}"
@@ -28,6 +34,8 @@ log() {
 # Значения по умолчанию для demo
 DEMO_USER="${DEMO_USER:-demo}"
 DEMO_PASS="${DEMO_PASS:-demo}"
+DEMO_READONLY_USER="${DEMO_READONLY_USER:-demo_reader}"
+DEMO_READONLY_PASS="${DEMO_READONLY_PASS:-demo_reader}"
 
 # FULL_RESET: true/1/yes/on → удаляем DB и baseline при старте
 FULL_RESET_RAW="${FULL_RESET:-false}"
@@ -131,6 +139,31 @@ COMMIT;
     "$DEMO_USER" "$DEMO_USER" "$DEMO_USER" \
     "$DEMO_USER" "$DEMO_USER" "$DEMO_USER" \
     "$DEMO_USER" "$DEMO_USER" "$DEMO_USER" "$DEMO_USER" > "$tmp"
+  isql -q -u SYSDBA -p "$FIREBIRD_ROOT_PASSWORD" -i "$tmp" >/dev/null
+  rm -f "$tmp" || true
+
+  log "ensuring least-privilege reader ${DEMO_READONLY_USER} exists"
+  tmp="/tmp/ensure_demo_reader.sql"
+  printf "CREATE USER %s PASSWORD '%s';\nCOMMIT;\n" \
+    "$DEMO_READONLY_USER" "$DEMO_READONLY_PASS" > "$tmp"
+  isql -q -u SYSDBA -p "$FIREBIRD_ROOT_PASSWORD" "$DB_CONN" -i "$tmp" >/dev/null 2>&1 || true
+
+  printf "CONNECT '%s' USER SYSDBA PASSWORD '%s';
+SET TERM ^;
+EXECUTE BLOCK AS
+  DECLARE VARIABLE n VARCHAR(63);
+BEGIN
+  FOR SELECT TRIM(rdb\$relation_name)
+      FROM rdb\$relations
+      WHERE COALESCE(rdb\$system_flag, 0) = 0
+        AND rdb\$view_blr IS NULL
+      INTO :n
+  DO
+    EXECUTE STATEMENT 'GRANT SELECT ON ' || n || ' TO USER %s';
+END^
+SET TERM ;^
+COMMIT;
+" "$DB_CONN" "$FIREBIRD_ROOT_PASSWORD" "$DEMO_READONLY_USER" > "$tmp"
   isql -q -u SYSDBA -p "$FIREBIRD_ROOT_PASSWORD" -i "$tmp" >/dev/null
   rm -f "$tmp" || true
 }
@@ -241,7 +274,7 @@ restore_from_baseline() {
   log "restore baseline -> ${DBFILE}"
   gbak -c -user SYSDBA -pas "$FIREBIRD_ROOT_PASSWORD" \
     -se "$SERVICE_MGR" \
-    "$BASELINE" "$DBFILE"
+    "$BASELINE" "$DB_ALIAS"
 
   # После restore гарантируем, что demo есть и имеет права (на случай старого baseline)
   wait_db

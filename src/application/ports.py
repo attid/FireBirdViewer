@@ -6,7 +6,7 @@ Infrastructure layer (repository/) defines HOW they are performed.
 
 from abc import ABC, abstractmethod
 
-from src.domain.models import Column, PagedData, ProcedureInfo, QueryResult
+from src.domain.models import Column, PagedData, ProcedureInfo, QueryExecutionPolicy, QueryResult
 
 
 class DatabasePort(ABC):
@@ -66,7 +66,14 @@ class DatabasePort(ABC):
     async def execute_procedure(self, proc_name: str, params: dict[str, str]) -> QueryResult: ...
 
     @abstractmethod
-    async def execute_query(self, sql: str) -> QueryResult: ...
+    async def execute_query(
+        self, sql: str, policy: QueryExecutionPolicy | None = None
+    ) -> QueryResult: ...
+
+    @abstractmethod
+    async def execute_readonly_query(
+        self, sql: str, policy: QueryExecutionPolicy | None = None
+    ) -> QueryResult: ...
 
     @abstractmethod
     async def close(self) -> None: ...

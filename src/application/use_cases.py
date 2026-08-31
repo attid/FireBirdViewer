@@ -214,13 +214,13 @@ class ExecuteQueryUseCase:
     def __init__(self, db: DatabasePort) -> None:
         self._db = db
 
-    async def execute(self, sql: str) -> QueryResult:
+    async def execute(self, sql: str, policy=None) -> QueryResult:
         """Execute SQL and return results. Raises on empty input."""
         stripped = sql.strip()
         if not stripped:
             msg = "Empty query"
             raise ValueError(msg)
-        return await self._db.execute_query(stripped)
+        return await self._db.execute_query(stripped, policy)
 
 
 class AskAiUseCase:
