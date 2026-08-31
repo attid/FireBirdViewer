@@ -24,7 +24,8 @@ FROM python:3.13-slim
 ARG VERSION=""
 ENV APP_VERSION=${VERSION}
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    SESSION_SECRET_FILE=/run/firebirdviewer/session.key
 
 # Firebird Python driver requires the native client library at runtime.
 RUN DEBIAN_FRONTEND=noninteractive apt-get update \

@@ -4,28 +4,17 @@ from main import _clean_db_error
 
 
 class TestCleanDbError:
-    """Test _clean_db_error with both Exception and str inputs."""
+    """Administrator diagnostics preserve the complete database message."""
 
-    def test_strips_sql_block(self):
+    def test_preserves_every_byte_of_database_error(self):
         raw = "(firebird.driver.types.DatabaseError) error msg [SQL: SELECT 1] [parameters: ()]"
         result = _clean_db_error(raw)
-        assert result == "error msg"
-        assert "[SQL:" not in result
-
-    def test_strips_background_block(self):
-        raw = "some error (Background on this error at: https://...)"
-        result = _clean_db_error(raw)
-        assert result == "some error"
-
-    def test_strips_driver_prefix(self):
-        raw = "(firebird.driver.types.DatabaseError) validation error"
-        result = _clean_db_error(raw)
-        assert result == "validation error"
+        assert result == raw
 
     def test_accepts_exception_object(self):
         exc = Exception("(firebird.driver.types.DatabaseError) boom [SQL: x]")
         result = _clean_db_error(exc)
-        assert result == "boom"
+        assert result == str(exc)
 
     def test_accepts_plain_string(self):
         result = _clean_db_error("simple error message")

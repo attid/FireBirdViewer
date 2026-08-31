@@ -7,7 +7,6 @@ This is the only module allowed to import from all layers.
 import json
 import logging
 import os
-import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -67,8 +66,8 @@ from src.interface.security import SecurityHeadersMiddleware, public_error
 from src.interface.session import (
     create_session_token,
     get_cookie_name,
+    load_or_create_session_secret,
     load_session,
-    require_session_secret,
 )
 from src.repository.ai_agent import ask_agent, continue_agent_turn, start_agent_turn
 from src.repository.ai_transport import normalize_model_response
@@ -91,7 +90,7 @@ def _read_version() -> str:
 APP_VERSION = _read_version()
 APP_ROOT_PATH = root_path()
 DEMO_SETTINGS = DemoSettings.from_env()
-SESSION_SECRET = require_session_secret()
+SESSION_SECRET = load_or_create_session_secret()
 QUERY_LIMITER = DemoQueryLimiter(DEMO_SETTINGS)
 
 app, rt = fast_app(
@@ -124,12 +123,8 @@ app, rt = fast_app(
 
 
 def _clean_db_error(exc: Exception | str) -> str:
-    """Sanitize a database error for non-public diagnostic callers."""
-    msg = str(exc)
-    msg = re.sub(r"\s*\[SQL:.*", "", msg, flags=re.DOTALL)
-    msg = re.sub(r"\s*\(Background on this error.*", "", msg, flags=re.DOTALL)
-    msg = re.sub(r"^\([\w.]+\)\s*", "", msg)
-    return msg.strip() or str(exc)
+    """Return the complete database diagnostic for the administrator UI."""
+    return str(exc)
 
 
 def _get_params(request: Request) -> ConnectionParams | None:
@@ -148,14 +143,6 @@ def _get_repo(request: Request) -> FirebirdRepository | None:
     if params is None:
         return None
     return FirebirdRepository(params, DEMO_SETTINGS.query_policy())
-
-
-def _get_ai_repo(request: Request) -> FirebirdRepository | None:
-    """Build the least-privilege repository used by automatic AI tools."""
-    if _get_params(request) is None:
-        return None
-    params = DEMO_SETTINGS.readonly_connection() or _get_params(request)
-    return FirebirdRepository(params, DEMO_SETTINGS.query_policy()) if params is not None else None
 
 
 @asynccontextmanager
@@ -617,7 +604,7 @@ async def get(request: Request):
 @rt(url_path("/ai/ask"))
 async def post(request: Request):
     """Handle an AI question using only server-managed provider settings."""
-    repo = _get_ai_repo(request)
+    repo = _get_repo(request)
     if repo is None:
         return error_alert("Not connected. Please reconnect.")
 
@@ -710,7 +697,7 @@ async def post(request: Request):
 @rt(url_path("/ai/relay/start"))
 async def post(request: Request):
     """Start browser-relayed AI without receiving the user's API key."""
-    repo = _get_ai_repo(request)
+    repo = _get_repo(request)
     if repo is None:
         return JSONResponse({"error": "Not connected. Please reconnect."}, status_code=401)
     try:
@@ -742,7 +729,7 @@ async def post(request: Request):
 @rt(url_path("/ai/relay/continue"))
 async def post(request: Request):
     """Continue browser-relayed AI and execute validated tools on the backend."""
-    repo = _get_ai_repo(request)
+    repo = _get_repo(request)
     if repo is None:
         return JSONResponse({"error": "Not connected. Please reconnect."}, status_code=401)
     try:

@@ -7,29 +7,48 @@ No JWT, no localStorage -- credentials stay inside an authenticated ciphertext.
 import base64
 import json
 import os
+import secrets
 from hashlib import sha256
+from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
 from src.domain.models import ConnectionParams
 
-_PLACEHOLDER_SECRETS = {
-    "",
-    "change-me-in-production",
-    "change_me",
-    "replace_with_random_session_secret",
-}
 _COOKIE_NAME = "fb_session"
 _MAX_AGE = 86400  # 24 hours
 
 
-def require_session_secret() -> str:
-    """Return the runtime session secret or fail closed on unsafe values."""
+def _default_secret_file() -> Path:
+    configured = os.environ.get("SESSION_SECRET_FILE", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".local" / "state" / "firebirdviewer" / "session.key"
+
+
+def load_or_create_session_secret() -> str:
+    """Use an explicit secret or generate and persist one for zero-config startup."""
     secret = os.environ.get("SESSION_SECRET_KEY", "").strip()
-    if secret.casefold() in _PLACEHOLDER_SECRETS or len(secret) < 32:
-        msg = "SESSION_SECRET_KEY must be set to a non-placeholder value of at least 32 characters"
-        raise RuntimeError(msg)
-    return secret
+    if secret:
+        return secret
+
+    path = _default_secret_file()
+    try:
+        saved = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        saved = ""
+    if saved:
+        return saved
+
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    generated = secrets.token_urlsafe(48)
+    try:
+        with path.open("x", encoding="utf-8") as handle:
+            handle.write(generated)
+        path.chmod(0o600)
+        return generated
+    except FileExistsError:
+        return path.read_text(encoding="utf-8").strip()
 
 
 def _build_fernet(secret_key: str) -> Fernet:
@@ -37,8 +56,9 @@ def _build_fernet(secret_key: str) -> Fernet:
     return Fernet(key)
 
 
-_SECRET_KEY = require_session_secret()
+_SECRET_KEY = load_or_create_session_secret()
 _fernet = _build_fernet(_SECRET_KEY)
+os.environ.setdefault("SESSION_SECRET_KEY", _SECRET_KEY)
 
 
 def create_session_token(params: ConnectionParams) -> str:

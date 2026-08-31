@@ -34,8 +34,6 @@ log() {
 # Значения по умолчанию для demo
 DEMO_USER="${DEMO_USER:-demo}"
 DEMO_PASS="${DEMO_PASS:-demo}"
-DEMO_READONLY_USER="${DEMO_READONLY_USER:-demo_reader}"
-DEMO_READONLY_PASS="${DEMO_READONLY_PASS:-demo_reader}"
 
 # FULL_RESET: true/1/yes/on → удаляем DB и baseline при старте
 FULL_RESET_RAW="${FULL_RESET:-false}"
@@ -142,30 +140,6 @@ COMMIT;
   isql -q -u SYSDBA -p "$FIREBIRD_ROOT_PASSWORD" -i "$tmp" >/dev/null
   rm -f "$tmp" || true
 
-  log "ensuring least-privilege reader ${DEMO_READONLY_USER} exists"
-  tmp="/tmp/ensure_demo_reader.sql"
-  printf "CREATE USER %s PASSWORD '%s';\nCOMMIT;\n" \
-    "$DEMO_READONLY_USER" "$DEMO_READONLY_PASS" > "$tmp"
-  isql -q -u SYSDBA -p "$FIREBIRD_ROOT_PASSWORD" "$DB_CONN" -i "$tmp" >/dev/null 2>&1 || true
-
-  printf "CONNECT '%s' USER SYSDBA PASSWORD '%s';
-SET TERM ^;
-EXECUTE BLOCK AS
-  DECLARE VARIABLE n VARCHAR(63);
-BEGIN
-  FOR SELECT TRIM(rdb\$relation_name)
-      FROM rdb\$relations
-      WHERE COALESCE(rdb\$system_flag, 0) = 0
-        AND rdb\$view_blr IS NULL
-      INTO :n
-  DO
-    EXECUTE STATEMENT 'GRANT SELECT ON ' || n || ' TO USER %s';
-END^
-SET TERM ;^
-COMMIT;
-" "$DB_CONN" "$FIREBIRD_ROOT_PASSWORD" "$DEMO_READONLY_USER" > "$tmp"
-  isql -q -u SYSDBA -p "$FIREBIRD_ROOT_PASSWORD" -i "$tmp" >/dev/null
-  rm -f "$tmp" || true
 }
 
 

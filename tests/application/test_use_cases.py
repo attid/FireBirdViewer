@@ -39,6 +39,7 @@ class FakeDatabasePort(DatabasePort):
         self._views = ["V_ACTIVE_USERS"]
         self._procedures = ["SP_CALC"]
         self._closed = False
+        self.executed_sql: list[str] = []
 
     async def test_connection(self) -> bool:
         return True
@@ -94,6 +95,7 @@ class FakeDatabasePort(DatabasePort):
         return ProcedureInfo(name=proc_name, source="BEGIN END")
 
     async def execute_query(self, sql: str, policy=None) -> QueryResult:
+        self.executed_sql.append(sql)
         return QueryResult(columns=["RESULT"], rows=[[1]], row_count=1)
 
     async def execute_readonly_query(self, sql: str, policy=None) -> QueryResult:
@@ -375,9 +377,15 @@ async def test_execute_ai_dml_allows_ddl():
     db = FakeDatabasePort()
     use_case = ExecuteAiDmlUseCase(db)
 
-    result = await use_case.execute("DROP TABLE USERS")
+    create_result = await use_case.execute("CREATE TABLE AI_SANDBOX_TEST (ID INTEGER)")
+    drop_result = await use_case.execute("DROP TABLE AI_SANDBOX_TEST")
 
-    assert result.row_count == 1
+    assert create_result.row_count == 1
+    assert drop_result.row_count == 1
+    assert db.executed_sql == [
+        "CREATE TABLE AI_SANDBOX_TEST (ID INTEGER)",
+        "DROP TABLE AI_SANDBOX_TEST",
+    ]
 
 
 @pytest.mark.asyncio

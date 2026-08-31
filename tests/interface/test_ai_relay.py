@@ -2,7 +2,8 @@
 
 from pathlib import Path
 
-from src.interface.components.ai import ai_assistant
+from src.domain.models import AiMessage
+from src.interface.components.ai import ai_assistant, ai_assistant_message
 
 
 def test_ai_settings_explains_browser_and_server_modes():
@@ -31,3 +32,19 @@ def test_browser_relay_never_posts_api_key_to_firebirdviewer():
     assert "ai_api_key" not in js
     assert "startBrowserRelayFromForm" in js
     assert "keydown" in js
+
+
+def test_ai_ddl_requires_explicit_confirmation():
+    for sql in (
+        "CREATE TABLE AI_SANDBOX_TEST (ID INTEGER)",
+        "DROP TABLE AI_SANDBOX_TEST",
+    ):
+        html = str(
+            ai_assistant_message(
+                AiMessage(role="assistant", content="Proposed SQL", sql=sql, is_dml=True)
+            )
+        )
+
+        assert sql in html
+        assert 'hx-post="/ai/execute"' in html
+        assert "hx-confirm=" in html

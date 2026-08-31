@@ -12,11 +12,11 @@ Approved by the user with `++` after the complete chat plan and file list.
 
 ## Plan
 
-- [x] Require non-placeholder runtime secrets and revalidate demo sessions.
-- [x] Add explicit secure cookie behavior, request IDs, safe errors, and health.
+- [x] Revalidate demo sessions and protect encrypted session state.
+- [x] Add explicit secure cookie behavior, request IDs, error logging, and health.
 - [x] Bound public-demo query time, rows, bytes, and concurrency.
 - [x] Execute AI tools in a genuine read-only Firebird transaction.
-- [x] Add a least-privilege demo reader account and alias-only database access.
+- [x] Add alias-only database access.
 - [x] Make runtime images non-root, read-only compatible, and production served.
 - [x] Ship an isolated reverse-proxied public-demo Compose stack.
 - [x] Update documentation and architecture decisions.
@@ -77,7 +77,7 @@ Delete: none.
 - Demo query defaults are configurable security controls: 15 seconds, 1000
   rows, 2 MiB, and four concurrent requests. Normal deployments remain
   unrestricted unless explicitly configured.
-- Demo services intentionally fail with placeholder secrets.
+- Firebird services intentionally fail with a placeholder root password.
 - Browser BYOK remains browser-to-provider; the backend never receives its key.
 - Traefik uses the file provider and does not mount the Docker socket.
 
@@ -88,7 +88,7 @@ Delete: none.
 - [x] Built viewer and demo images.
 - [x] Started hardened demo Compose and verified health through Traefik.
 - [x] Verified alias succeeds and a filesystem database path fails.
-- [x] Verified full SQL/DDL works and transaction/account read-only guards reject DDL.
+- [x] Verified full confirmed SQL/DDL works and automatic AI transactions reject writes.
 - [x] Verified UID/GID 10001, read-only rootfs, and dropped capabilities.
 - [x] Runtime HTTP/HTML smoke passed; in-app browser binding was unavailable.
 - [x] Rebuilt `.belief_map.sexp`; all 54 boundaries passed.

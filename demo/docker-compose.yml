@@ -41,8 +41,6 @@ services:
       - RESET_EVERY_SECONDS=3600
       - DEMO_PASS=demo
       - DEMO_USER=DEMO
-      - DEMO_READONLY_USER=DEMO_READER
-      - DEMO_READONLY_PASS=demo_reader
       - SEED_DB=/seed/employee.fdb
       - TZ=UTC
     volumes:
@@ -73,13 +71,10 @@ services:
     depends_on:
       firebird_reset: {condition: service_healthy}
     environment:
-      - SESSION_SECRET_KEY=replace_with_random_session_secret
       - DEMO_MODE=true
       - DEMO_DATABASE=firebird5:employee
       - DEMO_USER=demo
       - DEMO_PASSWORD=demo
-      - DEMO_READONLY_USER=demo_reader
-      - DEMO_READONLY_PASSWORD=demo_reader
       - DEMO_QUERY_TIMEOUT_MS=15000
       - DEMO_QUERY_MAX_ROWS=1000
       - DEMO_QUERY_MAX_BYTES=2097152
@@ -87,9 +82,10 @@ services:
       - TZ=UTC
     networks: [backend, frontend]
     read_only: true
+    volumes:
+      - viewer_state:/run/firebirdviewer
     tmpfs:
       - /tmp:size=32m,mode=1777
-      - /run/firebirdviewer:size=1m,mode=0700,uid=10001,gid=10001
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     pids_limit: 128
@@ -138,3 +134,4 @@ networks:
 
 volumes:
   firebird_demo_data:
+  viewer_state:

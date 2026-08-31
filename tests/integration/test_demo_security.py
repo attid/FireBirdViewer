@@ -13,7 +13,7 @@ ROOT = Path(__file__).parents[2]
 COMPOSE = ROOT / "demo" / "docker-compose.yml"
 PROJECT = "firebirdviewer_security_test"
 ROOT_PASSWORD = "integration-root-password-not-for-production"
-SESSION_SECRET = "integration-session-secret-at-least-thirty-two-characters"
+TEST_HTTP_PORT = 18080
 
 
 def _docker(*args: str, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
@@ -38,6 +38,7 @@ def test_demo_compose_declares_security_boundaries():
     assert "./traefik-dynamic.yml" in text
     assert '"8080:8080"' in text
     assert '"8080:5001"' not in text
+    assert text.count("DEMO_USER=") == 2
 
 
 @pytest.mark.skipif(
@@ -48,7 +49,7 @@ def test_demo_alias_readonly_and_container_isolation():
     compose = (
         COMPOSE.read_text()
         .replace("replace_with_random_root_password", ROOT_PASSWORD)
-        .replace("replace_with_random_session_secret", SESSION_SECRET)
+        .replace('"8080:8080"', f'"{TEST_HTTP_PORT}:8080"')
     )
     with tempfile.TemporaryDirectory(prefix="firebirdviewer-security-") as temp_dir:
         compose_file = Path(temp_dir) / "compose.yml"
@@ -87,7 +88,9 @@ def _run_stack_checks(compose_args: tuple[str, ...]) -> None:
             )
             raise AssertionError(f"stack startup failed:\n{logs.stdout}\n{logs.stderr}") from exc
 
-        with urllib.request.urlopen("http://127.0.0.1:8080/healthz", timeout=5) as response:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{TEST_HTTP_PORT}/healthz", timeout=5
+        ) as response:
             assert json.load(response)["status"] == "ok"
 
         alias = _docker(
@@ -147,28 +150,6 @@ def _run_stack_checks(compose_args: tuple[str, ...]) -> None:
         )
         assert "Statement failed" not in full_ddl.stderr
 
-        readonly_ddl = subprocess.run(
-            [
-                "docker",
-                *compose_args,
-                "exec",
-                "-T",
-                "firebird5",
-                "isql",
-                "-q",
-                "-u",
-                "demo_reader",
-                "-p",
-                "demo_reader",
-                "localhost:employee",
-            ],
-            cwd=ROOT,
-            input="create table FORBIDDEN_AI_DDL (ID integer);\n",
-            text=True,
-            capture_output=True,
-        )
-        assert readonly_ddl.returncode != 0 or "no permission" in readonly_ddl.stderr.lower()
-
         transaction_guard = _docker(
             *compose_args,
             "exec",
@@ -188,6 +169,32 @@ def _run_stack_checks(compose_args: tuple[str, ...]) -> None:
             ),
         )
         assert transaction_guard.returncode == 0
+
+        confirmed_ai_ddl = _docker(
+            *compose_args,
+            "exec",
+            "-T",
+            "viewer",
+            "/app/.venv/bin/python",
+            "-c",
+            (
+                "import asyncio\n"
+                "from src.application.use_cases import ExecuteAiDmlUseCase\n"
+                "from src.domain.models import ConnectionParams\n"
+                "from src.repository.firebird import FirebirdRepository\n"
+                "async def check():\n"
+                " repo=FirebirdRepository(ConnectionParams(database='firebird5:employee',"
+                "user='demo',password='demo'));\n"
+                " uc=ExecuteAiDmlUseCase(repo);\n"
+                " created=await uc.execute('CREATE TABLE AI_SANDBOX_TEST (ID INTEGER)');\n"
+                " assert not created.error, created.error;\n"
+                " dropped=await uc.execute('DROP TABLE AI_SANDBOX_TEST');\n"
+                " assert not dropped.error, dropped.error;\n"
+                " await repo.close()\n"
+                "asyncio.run(check())"
+            ),
+        )
+        assert confirmed_ai_ddl.returncode == 0
 
         viewer_id = _docker(*compose_args, "ps", "-q", "viewer").stdout.strip()
         inspected = json.loads(_docker("inspect", viewer_id).stdout)[0]

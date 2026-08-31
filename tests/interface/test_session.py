@@ -9,25 +9,30 @@ from src.interface.session import (
     _SECRET_KEY,
     _build_fernet,
     create_session_token,
+    load_or_create_session_secret,
     load_session,
-    require_session_secret,
 )
 
 
-def test_session_secret_rejects_missing_and_placeholder_values(monkeypatch):
-    for value in (None, "", "change-me-in-production", "replace_with_random_session_secret"):
-        if value is None:
-            monkeypatch.delenv("SESSION_SECRET_KEY", raising=False)
-        else:
-            monkeypatch.setenv("SESSION_SECRET_KEY", value)
-        with pytest.raises(RuntimeError, match="SESSION_SECRET_KEY"):
-            require_session_secret()
+def test_session_secret_is_generated_and_reused_without_configuration(monkeypatch, tmp_path):
+    secret_file = tmp_path / "session.key"
+    monkeypatch.delenv("SESSION_SECRET_KEY", raising=False)
+    monkeypatch.setenv("SESSION_SECRET_FILE", str(secret_file))
+
+    generated = load_or_create_session_secret()
+    reused = load_or_create_session_secret()
+
+    assert generated == reused
+    assert len(generated) >= 32
+    assert secret_file.read_text(encoding="utf-8").strip() == generated
+    assert secret_file.stat().st_mode & 0o777 == 0o600
 
 
-def test_session_secret_accepts_strong_runtime_value(monkeypatch):
-    secret = "a-runtime-secret-that-is-longer-than-thirty-two-characters"
+def test_session_secret_accepts_explicit_runtime_value(monkeypatch, tmp_path):
+    secret = "explicit-session-secret"
     monkeypatch.setenv("SESSION_SECRET_KEY", secret)
-    assert require_session_secret() == secret
+    monkeypatch.setenv("SESSION_SECRET_FILE", str(tmp_path / "unused.key"))
+    assert load_or_create_session_secret() == secret
 
 
 def test_rotating_session_secret_invalidates_existing_tokens():

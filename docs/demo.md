@@ -6,14 +6,12 @@ resource controls contain that deliberate privilege.
 
 ## Required deployment values
 
-Before deployment, edit both literal placeholders in `demo/docker-compose.yml`:
+Before deployment, edit the literal placeholder in `demo/docker-compose.yml`:
 
 - `FIREBIRD_ROOT_PASSWORD=replace_with_random_root_password` must be replaced
   in both Firebird services with the same random password.
-- `SESSION_SECRET_KEY=replace_with_random_session_secret` must be replaced with
-  a random value of at least 32 characters.
-
-The containers intentionally fail startup while either placeholder remains.
+The Firebird containers intentionally fail startup while the placeholder remains.
+Viewer generates its session key automatically and persists it in `viewer_state`.
 No `.env` file or Compose variable substitution is required.
 
 ## Behavior and boundaries
@@ -21,7 +19,6 @@ No `.env` file or Compose variable substitution is required.
 - URL: `http://localhost:8080`
 - Database: `firebird5:employee`
 - SQL user: `demo` / `demo`
-- AI read-only user: `demo_reader` / `demo_reader`
 - Reset interval: 3600 seconds
 - Only Traefik publishes a host port.
 - Firebird accepts the `employee` alias and rejects raw filesystem paths.
@@ -36,7 +33,7 @@ deployments.
 
 ## Run locally
 
-After replacing the two placeholders:
+After replacing the root-password placeholder:
 
 ```bash
 docker build -t ghcr.io/attid/firebirdviewer:latest .
@@ -51,7 +48,7 @@ demo database and reset baseline should also be discarded.
 ## Deploy with Portainer
 
 Use a Git-backed Portainer stack so the two checked-in Traefik configuration
-files are available beside the Compose file. Edit the literal secrets in the
+files are available beside the Compose file. Edit the literal root password in the
 stack editor, deploy, and wait for all health checks. Do not publish port 3050
 or add a direct viewer port; only the proxy port `8080` is intended to be
 public.

@@ -93,7 +93,7 @@ Internet traffic from the application server.
 - Connection params serialized into encrypted Fernet cookie
 - 24h expiry, httponly, no client-side access to credentials
 - Each request rebuilds repository from cookie -- stateless server
-- A non-placeholder runtime secret of at least 32 characters is mandatory
+- A random secret is generated and persisted when no explicit runtime secret is supplied
 - Demo mode revalidates database and user after every cookie decode
 
 ## Public Demo Security Boundary
@@ -101,9 +101,10 @@ Internet traffic from the application server.
 The disposable demo intentionally keeps full user-confirmed SQL and DDL. It
 contains that privilege with alias-only Firebird access, database statement
 timeouts, bounded result fetching, concurrency controls, and an hourly reset.
-Automatic AI tools use a separate least-privilege identity and a Firebird
-`READ ONLY` transaction; lexical SQL classification is presentation metadata,
-not the enforcement boundary.
+Automatic AI tools use the connected identity in a Firebird `READ ONLY`
+transaction. DML and DDL use the connected identity's normal transaction only
+after explicit confirmation; lexical SQL classification is presentation metadata,
+not the read-only enforcement boundary.
 
 The viewer container runs as UID/GID 10001 with a read-only root filesystem.
 Traefik is the only published demo service, uses a file provider without access

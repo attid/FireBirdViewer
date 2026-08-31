@@ -25,11 +25,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 def public_error(request: Request, exc: Exception, message: str) -> str:
-    """Log private details and return a stable public error with a request ID."""
+    """Log the failure and return its complete diagnostic text to the administrator."""
     request_id = getattr(request.state, "request_id", uuid.uuid4().hex)
     log.error(
         "request_failed request_id=%s",
         request_id,
         exc_info=(type(exc), exc, exc.__traceback__),
     )
-    return f"{message} Reference: {request_id}"
+    return str(exc)

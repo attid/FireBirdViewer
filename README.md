@@ -84,14 +84,13 @@ Open `http://localhost:5001` in your browser.
 docker build -t firebird-viewer .
 docker run --read-only --cap-drop ALL --security-opt no-new-privileges \
   --tmpfs /tmp:size=32m,mode=1777 \
-  --tmpfs /run/firebirdviewer:size=1m,mode=0700,uid=10001,gid=10001 \
-  -e SESSION_SECRET_KEY=replace_with_a_random_secret_of_at_least_32_characters \
+  --mount source=firebirdviewer-state,target=/run/firebirdviewer \
   -p 5001:5001 firebird-viewer
 ```
 
 No internet required inside the container — all assets are baked in at build time.
-`SESSION_SECRET_KEY` is mandatory; missing, short, and known placeholder values
-fail startup instead of silently weakening encrypted sessions.
+The session key is generated on first startup and persisted in the mounted state
+volume. `SESSION_SECRET_KEY` remains available as an optional explicit override.
 
 ### Demo environment
 
@@ -103,7 +102,6 @@ To serve the app under a sub-path:
 
 ```bash
 docker run -p 5001:5001 \
-  -e SESSION_SECRET_KEY=replace_with_a_random_secret_of_at_least_32_characters \
   -e APP_ROOT_PATH=/viewer firebird-viewer
 ```
 

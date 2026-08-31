@@ -4,7 +4,7 @@ import os
 from asyncio import BoundedSemaphore
 from dataclasses import dataclass
 
-from src.domain.models import ConnectionParams, QueryExecutionPolicy
+from src.domain.models import QueryExecutionPolicy
 
 
 @dataclass(frozen=True)
@@ -15,8 +15,6 @@ class DemoSettings:
     database: str = "firebird5:employee"
     user: str = "demo"
     password: str = "demo"
-    readonly_user: str = "demo_reader"
-    readonly_password: str = "demo_reader"
     query_timeout_ms: int = 15000
     query_max_rows: int = 1000
     query_max_bytes: int = 2 * 1024 * 1024
@@ -36,8 +34,6 @@ class DemoSettings:
             database=os.environ.get("DEMO_DATABASE", cls.database).strip(),
             user=os.environ.get("DEMO_USER", cls.user).strip(),
             password=os.environ.get("DEMO_PASSWORD", cls.password),
-            readonly_user=os.environ.get("DEMO_READONLY_USER", cls.readonly_user).strip(),
-            readonly_password=os.environ.get("DEMO_READONLY_PASSWORD", cls.readonly_password),
             query_timeout_ms=int(os.environ.get("DEMO_QUERY_TIMEOUT_MS", "15000")),
             query_max_rows=int(os.environ.get("DEMO_QUERY_MAX_ROWS", "1000")),
             query_max_bytes=int(os.environ.get("DEMO_QUERY_MAX_BYTES", str(2 * 1024 * 1024))),
@@ -58,16 +54,6 @@ class DemoSettings:
             timeout_ms=self.query_timeout_ms,
             max_rows=self.query_max_rows,
             max_bytes=self.query_max_bytes,
-        )
-
-    def readonly_connection(self) -> ConnectionParams | None:
-        """Return the least-privilege identity used by demo AI tools."""
-        if not self.enabled:
-            return None
-        return ConnectionParams(
-            database=self.database,
-            user=self.readonly_user,
-            password=self.readonly_password,
         )
 
 

@@ -1,4 +1,3 @@
-# Replace SESSION_SECRET_KEY before starting. Placeholder values fail closed.
 services:
   viewer:
     build: .
@@ -6,13 +5,13 @@ services:
     restart: unless-stopped
     ports: ["5001:5001"]
     environment:
-      - SESSION_SECRET_KEY=replace_with_random_session_secret
       - APP_ROOT_PATH=
       - TZ=Europe/Moscow
     read_only: true
+    volumes:
+      - viewer_state:/run/firebirdviewer
     tmpfs:
       - /tmp:size=32m,mode=1777
-      - /run/firebirdviewer:size=1m,mode=0700,uid=10001,gid=10001
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     pids_limit: 128
@@ -26,3 +25,6 @@ services:
     logging:
       driver: json-file
       options: {max-size: 10m, max-file: "5"}
+
+volumes:
+  viewer_state:
