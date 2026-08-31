@@ -118,7 +118,9 @@ def test_insert_form_does_not_block_blank_not_null_fields():
 
     assert 'name="col_ALARM_ID"' in html
     assert 'name="col_DESK_ID"' in html
-    assert "required" not in html
+    assert html.count(">PK<") == 1
+    assert html.count('title="required"') == 2
+    assert " required" not in html
 
 
 def test_insert_form_renders_boolean_select_and_preserves_value():
