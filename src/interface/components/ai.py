@@ -254,7 +254,7 @@ def ai_assistant_message(msg: AiMessage) -> Div:
                         "Execute",
                         type="submit",
                         cls="btn btn-warning btn-sm",
-                        hx_confirm="Execute this DML statement?",
+                        hx_confirm="Execute this SQL statement?",
                     ),
                     hx_post=url_path("/ai/execute"),
                     hx_target="#ai-chat-messages",

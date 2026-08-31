@@ -40,6 +40,10 @@ def test_system_prompt_describes_supported_markdown_contract():
     assert "fenced" in _SYSTEM_PROMPT
     assert "raw HTML" in _SYSTEM_PROMPT
     assert "images" in _SYSTEM_PROMPT
+    assert "built-in Execute button" in _SYSTEM_PROMPT
+    assert "exactly one" in _SYSTEM_PROMPT
+    assert "external" in _SYSTEM_PROMPT
+    assert "SQL tools" in _SYSTEM_PROMPT
 
 
 def test_start_agent_turn_builds_provider_request_without_api_key(monkeypatch):

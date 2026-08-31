@@ -577,7 +577,16 @@ document.addEventListener('htmx:afterSwap', function() {
     function appendAiHtml(html) {
         var chat = document.getElementById('ai-chat-messages');
         if (!chat) return;
+        var previousLast = chat.lastElementChild;
         chat.insertAdjacentHTML('beforeend', html);
+        if (window.htmx) {
+            var added = previousLast ? previousLast.nextElementSibling : chat.firstElementChild;
+            while (added) {
+                var next = added.nextElementSibling;
+                window.htmx.process(added);
+                added = next;
+            }
+        }
         chat.scrollTop = chat.scrollHeight;
     }
 

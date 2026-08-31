@@ -32,6 +32,7 @@ def test_browser_relay_never_posts_api_key_to_firebirdviewer():
     assert "ai_api_key" not in js
     assert "startBrowserRelayFromForm" in js
     assert "keydown" in js
+    assert "window.htmx.process" in js
 
 
 def test_ai_ddl_requires_explicit_confirmation():
@@ -48,3 +49,4 @@ def test_ai_ddl_requires_explicit_confirmation():
         assert sql in html
         assert 'hx-post="/ai/execute"' in html
         assert "hx-confirm=" in html
+        assert "Execute this SQL statement?" in html
