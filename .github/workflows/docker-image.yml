@@ -50,6 +50,7 @@ jobs:
           TARGET_TAG: ${{ inputs.target_tag }}
         run: |
           docker buildx imagetools create \
+            --prefer-index=false \
             --tag "$REGISTRY/$IMAGE_NAME:$TARGET_TAG" \
             "$REGISTRY/$IMAGE_NAME@$SOURCE_DIGEST"
 

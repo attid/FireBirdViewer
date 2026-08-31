@@ -30,6 +30,8 @@ manual retag workflow for `0.4.0`, and verify the final registry digests.
 
 - Reassigning `0.4.0` mutates an existing registry tag. Both images remain addressable
   by immutable digest.
+- The retag command uses `--prefer-index=false` so a single-platform source is copied
+  directly instead of being wrapped in a new one-entry manifest list.
 - The local GitHub token has no package-write scope, so the retag must run through the
   repository workflow's scoped `GITHUB_TOKEN`.
 - The demo image has its own package and its existing `0.4.0` tag is intentionally not
