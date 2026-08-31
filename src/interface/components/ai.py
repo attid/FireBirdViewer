@@ -94,7 +94,13 @@ def _ai_settings_modal() -> Dialog:
             Div(
                 Div(
                     Div(
-                        Span("Server-managed", cls="badge badge-neutral badge-sm"),
+                        Span(
+                            "Server-managed",
+                            cls=(
+                                "badge badge-sm border-0 bg-slate-800 text-white "
+                                "shrink-0 whitespace-nowrap"
+                            ),
+                        ),
                         Span(
                             "Used automatically when no personal API key is entered.",
                             cls="text-sm text-base-content/70",
@@ -102,7 +108,13 @@ def _ai_settings_modal() -> Dialog:
                         cls="flex items-center gap-2",
                     ),
                     Div(
-                        Span("Browser BYOK", cls="badge badge-primary badge-sm"),
+                        Span(
+                            "Browser BYOK",
+                            cls=(
+                                "badge badge-sm border-0 bg-violet-700 text-white "
+                                "shrink-0 whitespace-nowrap"
+                            ),
+                        ),
                         Span(
                             "Your browser calls the selected provider directly; the key "
                             "is never sent to FireBirdViewer.",
