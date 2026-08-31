@@ -5,6 +5,15 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      source_digest:
+        description: Existing firebirdviewer image digest to retag
+        required: false
+        type: string
+      target_tag:
+        description: Tag to assign to source_digest
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -12,7 +21,40 @@ env:
   DEMO_IMAGE_NAME: attid/firebirdviewer-demo
 
 jobs:
+  retag-existing-image:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.source_digest != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Validate retag inputs
+        env:
+          SOURCE_DIGEST: ${{ inputs.source_digest }}
+          TARGET_TAG: ${{ inputs.target_tag }}
+        run: |
+          test -n "$SOURCE_DIGEST"
+          test -n "$TARGET_TAG"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Retag existing viewer image
+        env:
+          SOURCE_DIGEST: ${{ inputs.source_digest }}
+          TARGET_TAG: ${{ inputs.target_tag }}
+        run: |
+          docker buildx imagetools create \
+            --tag "$REGISTRY/$IMAGE_NAME:$TARGET_TAG" \
+            "$REGISTRY/$IMAGE_NAME@$SOURCE_DIGEST"
+
   build-and-push:
+    if: ${{ github.event_name == 'push' || inputs.source_digest == '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
